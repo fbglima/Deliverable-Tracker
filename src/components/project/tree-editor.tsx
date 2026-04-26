@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import {
   ChevronRight,
   Clock3,
+  Download,
   FileText,
   GitCompareArrows,
   Languages,
@@ -55,6 +56,7 @@ type TreeEditorProps = {
 
 type Density = "compact" | "comfortable" | "roomy";
 type AddVersionsTarget = "selected" | "all";
+type ExportFormat = "txt" | "md" | "csv";
 type ViewMode = "rows" | "pivot" | "tree";
 
 type VisibleRow = {
@@ -87,6 +89,12 @@ type SnapshotDiff = {
   beforeTypeCounts: Record<MatrixNodeType, number>;
   changed: SnapshotChangeEntry[];
   removed: SnapshotDiffEntry[];
+};
+
+type ExportPath = {
+  filename: string;
+  nodes: DeliverableNode[];
+  pathText: string;
 };
 
 const densityVars: Record<Density, CSSProperties> = {
@@ -177,6 +185,7 @@ export function TreeEditor({
   const [hoveredPathIds, setHoveredPathIds] = useState<string[]>([]);
   const [openMenuNodeId, setOpenMenuNodeId] = useState<string | null>(null);
   const [showCreativeUnitModal, setShowCreativeUnitModal] = useState(false);
+  const [showSnapshotModal, setShowSnapshotModal] = useState(false);
   const [creativeUnitName, setCreativeUnitName] = useState("");
   const [showVersionsModal, setShowVersionsModal] = useState(false);
   const [versionSourceNodeId, setVersionSourceNodeId] = useState<string | null>(
@@ -197,6 +206,7 @@ export function TreeEditor({
   const [compareSnapshotId, setCompareSnapshotId] = useState<string>(
     initialSnapshots[0]?.id ?? "",
   );
+  const [includeTechnicalExports, setIncludeTechnicalExports] = useState(false);
   const [status, setStatus] = useState("Unsaved edits stay local until saved.");
   const [isPending, startTransition] = useTransition();
 
@@ -406,7 +416,7 @@ export function TreeEditor({
     });
   }
 
-  function createSnapshot() {
+  function createSnapshot(closeAfterSave = false) {
     startTransition(async () => {
       try {
         await saveSnapshot(project.id, {
@@ -418,6 +428,9 @@ export function TreeEditor({
         setSnapshotName("Current");
         setSnapshotNotes("");
         setStatus("Snapshot saved");
+        if (closeAfterSave) {
+          setShowSnapshotModal(false);
+        }
         router.refresh();
       } catch (error) {
         setStatus(
@@ -452,7 +465,7 @@ export function TreeEditor({
         onDensity={setDensity}
         onSave={saveTree}
         onSearch={setSearch}
-        onSnapshot={createSnapshot}
+        onSnapshot={() => setShowSnapshotModal(true)}
         onView={setViewMode}
         search={search}
         view={viewMode}
@@ -547,12 +560,20 @@ export function TreeEditor({
             <SnapshotPanel
               isPending={isPending}
               onNotes={setSnapshotNotes}
-              onSaveSnapshot={createSnapshot}
+              onSaveSnapshot={() => createSnapshot(false)}
               onSnapshotName={setSnapshotName}
               snapshotName={snapshotName}
               snapshotNotes={snapshotNotes}
               snapshots={initialSnapshots}
               status={status}
+            />
+            <ExportPanel
+              filenameCase={filenameCase}
+              filenameSeparator={filenameSeparator}
+              includeTechnical={includeTechnicalExports}
+              onIncludeTechnical={setIncludeTechnicalExports}
+              project={project}
+              tree={tree}
             />
             <SnapshotComparePanel
               diff={snapshotDiff}
@@ -604,6 +625,18 @@ export function TreeEditor({
             </button>
           </div>
         </Modal>
+      ) : null}
+
+      {showSnapshotModal ? (
+        <SnapshotModal
+          isPending={isPending}
+          notes={snapshotNotes}
+          onClose={() => setShowSnapshotModal(false)}
+          onNotes={setSnapshotNotes}
+          onSave={() => createSnapshot(true)}
+          onSnapshotName={setSnapshotName}
+          snapshotName={snapshotName}
+        />
       ) : null}
 
       {showVersionsModal ? (
@@ -1505,6 +1538,87 @@ function SnapshotPanel({
   );
 }
 
+function ExportPanel({
+  filenameCase,
+  filenameSeparator,
+  includeTechnical,
+  onIncludeTechnical,
+  project,
+  tree,
+}: {
+  filenameCase: FilenameCase;
+  filenameSeparator: FilenameSeparator;
+  includeTechnical: boolean;
+  onIncludeTechnical: (includeTechnical: boolean) => void;
+  project: Project;
+  tree: DeliverableTree;
+}) {
+  const counts = calculateCounts(tree);
+  const exportPaths = collectExportPaths(tree, project, {
+    caseStyle: filenameCase,
+    includeTechnical,
+    separator: filenameSeparator,
+  });
+
+  function exportMatrix(format: ExportFormat) {
+    const content = buildExportContent({
+      counts,
+      format,
+      includeTechnical,
+      paths: exportPaths,
+      project,
+      tree,
+    });
+    const baseName = formatFilenameParts(
+      [project.client_name, project.name, "deliverables"].filter(Boolean) as string[],
+      { caseStyle: filenameCase, separator: filenameSeparator },
+    );
+    const mimeType =
+      format === "csv"
+        ? "text/csv;charset=utf-8"
+        : format === "md"
+          ? "text/markdown;charset=utf-8"
+          : "text/plain;charset=utf-8";
+
+    downloadTextFile(content, `${baseName}.${format}`, mimeType);
+  }
+
+  return (
+    <section className="dt-panel p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold">Exports</h2>
+        <Download className="h-4 w-4 text-[var(--ink-3)]" />
+      </div>
+      <p className="dt-sub mt-2">
+        Export the current matrix as a working producer summary.
+      </p>
+      <label className="mt-4 flex items-start gap-2 text-sm text-[var(--ink-2)]">
+        <input
+          checked={includeTechnical}
+          className="mt-1"
+          onChange={(event) => onIncludeTechnical(event.target.checked)}
+          type="checkbox"
+        />
+        Include technical variants in client-facing paths.
+      </label>
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        <button className="dt-btn justify-center" onClick={() => exportMatrix("txt")} type="button">
+          TXT
+        </button>
+        <button className="dt-btn justify-center" onClick={() => exportMatrix("md")} type="button">
+          MD
+        </button>
+        <button className="dt-btn justify-center" onClick={() => exportMatrix("csv")} type="button">
+          CSV
+        </button>
+      </div>
+      <div className="mono mt-3 text-[10.5px] text-[var(--ink-3)]">
+        {exportPaths.length} terminal rows ready
+      </div>
+    </section>
+  );
+}
+
 function SnapshotComparePanel({
   diff,
   onSnapshot,
@@ -1896,6 +2010,68 @@ function Modal({
   );
 }
 
+function SnapshotModal({
+  isPending,
+  notes,
+  onClose,
+  onNotes,
+  onSave,
+  onSnapshotName,
+  snapshotName,
+}: {
+  isPending: boolean;
+  notes: string;
+  onClose: () => void;
+  onNotes: (notes: string) => void;
+  onSave: () => void;
+  onSnapshotName: (name: string) => void;
+  snapshotName: string;
+}) {
+  return (
+    <Modal onClose={onClose} title="Save snapshot">
+      <div className="grid gap-4">
+        <label className="dt-field">
+          Snapshot name
+          <input
+            autoFocus
+            className="dt-input"
+            onChange={(event) => onSnapshotName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                onSave();
+              }
+            }}
+            placeholder="Post-Kickoff Update"
+            value={snapshotName}
+          />
+        </label>
+        <label className="dt-field">
+          Notes
+          <textarea
+            className="dt-input min-h-20"
+            onChange={(event) => onNotes(event.target.value)}
+            placeholder="What changed or why this version matters"
+            value={notes}
+          />
+        </label>
+        <div className="flex justify-end gap-2">
+          <button className="dt-btn" onClick={onClose} type="button">
+            Cancel
+          </button>
+          <button
+            className="dt-btn primary"
+            disabled={isPending || !snapshotName.trim()}
+            onClick={onSave}
+            type="button"
+          >
+            Save snapshot
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function AddVersionsModal({
   addableTypes,
   customLabels,
@@ -2225,6 +2401,194 @@ function formatDelta(delta: number) {
   }
 
   return String(delta);
+}
+
+function collectExportPaths(
+  tree: DeliverableTree,
+  project: Project,
+  options: {
+    caseStyle: FilenameCase;
+    includeTechnical: boolean;
+    separator: FilenameSeparator;
+  },
+) {
+  const paths: ExportPath[] = [];
+
+  function walk(node: DeliverableNode, path: DeliverableNode[]) {
+    const nextPath = [...path, node];
+
+    if (!node.children?.length) {
+      if (node.nodeType === "output_format") {
+        const visibleNodes = options.includeTechnical
+          ? nextPath
+          : nextPath.filter((item) => item.nodeType !== "technical_variant");
+        paths.push({
+          filename: suggestFilename({
+            caseStyle: options.caseStyle,
+            clientName: project.client_name,
+            pathLabels: visibleNodes.map((item) => item.label),
+            projectName: project.name,
+            separator: options.separator,
+          }),
+          nodes: visibleNodes,
+          pathText: visibleNodes.map((item) => item.label).join(" / "),
+        });
+      }
+      return;
+    }
+
+    node.children.forEach((child) => walk(child, nextPath));
+  }
+
+  tree.nodes.forEach((node) => walk(node, []));
+
+  return paths.sort((first, second) => first.filename.localeCompare(second.filename));
+}
+
+function buildExportContent({
+  counts,
+  format,
+  includeTechnical,
+  paths,
+  project,
+  tree,
+}: {
+  counts: ReturnType<typeof calculateCounts>;
+  format: ExportFormat;
+  includeTechnical: boolean;
+  paths: ExportPath[];
+  project: Project;
+  tree: DeliverableTree;
+}) {
+  if (format === "csv") {
+    return buildCsvExport(paths);
+  }
+
+  if (format === "md") {
+    return buildMarkdownExport({ counts, includeTechnical, paths, project, tree });
+  }
+
+  return buildTextExport({ counts, includeTechnical, paths, project, tree });
+}
+
+function buildTextExport({
+  counts,
+  includeTechnical,
+  paths,
+  project,
+  tree,
+}: {
+  counts: ReturnType<typeof calculateCounts>;
+  includeTechnical: boolean;
+  paths: ExportPath[];
+  project: Project;
+  tree: DeliverableTree;
+}) {
+  const lines = [
+    project.client_name ? `${project.client_name} - ${project.name}` : project.name,
+    "",
+    `Creative deliverables: ${counts.creativeDeliverables}`,
+    `Terminal files: ${counts.terminalFiles}`,
+    `Technical variants: ${includeTechnical ? "included" : "hidden"}`,
+    `Taxonomy: ${getTaxonomyFlow(getEnabledForkTypes(tree))
+      .map((type) => nodeTypeLabels[type])
+      .join(" / ")}`,
+    "",
+    "Deliverables",
+    ...paths.map((path) => `- ${path.pathText} | ${path.filename}`),
+  ];
+
+  return lines.join("\n");
+}
+
+function buildMarkdownExport({
+  counts,
+  includeTechnical,
+  paths,
+  project,
+  tree,
+}: {
+  counts: ReturnType<typeof calculateCounts>;
+  includeTechnical: boolean;
+  paths: ExportPath[];
+  project: Project;
+  tree: DeliverableTree;
+}) {
+  const title = project.client_name
+    ? `${project.client_name} - ${project.name}`
+    : project.name;
+  const lines = [
+    `# ${title}`,
+    "",
+    `- Creative deliverables: ${counts.creativeDeliverables}`,
+    `- Terminal files: ${counts.terminalFiles}`,
+    `- Technical variants: ${includeTechnical ? "included" : "hidden"}`,
+    `- Taxonomy: ${getTaxonomyFlow(getEnabledForkTypes(tree))
+      .map((type) => nodeTypeLabels[type])
+      .join(" / ")}`,
+    "",
+    "## Deliverables",
+    "",
+    "| Path | Suggested filename |",
+    "| --- | --- |",
+    ...paths.map((path) => `| ${escapeMarkdownCell(path.pathText)} | \`${path.filename}\` |`),
+  ];
+
+  return lines.join("\n");
+}
+
+function buildCsvExport(paths: ExportPath[]) {
+  const headers = [
+    "Creative Unit",
+    "Duration",
+    "Aspect Ratio",
+    "Platform",
+    "Localization",
+    "Technical Variant",
+    "Output Format",
+    "Suggested Filename",
+  ];
+  const rows = paths.map((path) => {
+    const values = Object.fromEntries(
+      allNodeTypes.map((type) => [
+        type,
+        path.nodes.find((node) => node.nodeType === type)?.label ?? "",
+      ]),
+    ) as Record<MatrixNodeType, string>;
+
+    return [
+      values.creative_unit,
+      values.duration,
+      values.aspect_ratio,
+      values.platform,
+      values.localization,
+      values.technical_variant,
+      values.output_format,
+      path.filename,
+    ];
+  });
+
+  return [headers, ...rows].map((row) => row.map(escapeCsvCell).join(",")).join("\n");
+}
+
+function escapeCsvCell(value: string) {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function escapeMarkdownCell(value: string) {
+  return value.replace(/\|/g, "\\|");
+}
+
+function downloadTextFile(content: string, filename: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function suggestFilename({
