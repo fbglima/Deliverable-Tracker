@@ -113,6 +113,40 @@ export async function updateProjectTree(projectId: string, tree: DeliverableTree
   revalidatePath(`/projects/${projectId}`);
 }
 
+export async function updateProjectDetails(
+  projectId: string,
+  payload: {
+    campaignName?: string | null;
+    clientName?: string | null;
+    description?: string | null;
+    name: string;
+  },
+) {
+  const { supabase } = await requireUser();
+  const name = payload.name.trim();
+
+  if (!name) {
+    throw new Error("Project name is required.");
+  }
+
+  const { error } = await supabase
+    .from("projects")
+    .update({
+      campaign_name: payload.campaignName?.trim() || null,
+      client_name: payload.clientName?.trim() || null,
+      description: payload.description?.trim() || null,
+      name,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", projectId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath(`/projects/${projectId}`);
+}
+
 export async function saveSnapshot(
   projectId: string,
   payload: {

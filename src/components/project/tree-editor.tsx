@@ -28,7 +28,11 @@ import {
   Table2,
   Trash2,
 } from "lucide-react";
-import { saveSnapshot, updateProjectTree } from "@/app/actions";
+import {
+  saveSnapshot,
+  updateProjectDetails,
+  updateProjectTree,
+} from "@/app/actions";
 import {
   calculateCounts,
   countNodesByType,
@@ -185,7 +189,18 @@ export function TreeEditor({
   const [hoveredPathIds, setHoveredPathIds] = useState<string[]>([]);
   const [openMenuNodeId, setOpenMenuNodeId] = useState<string | null>(null);
   const [showCreativeUnitModal, setShowCreativeUnitModal] = useState(false);
+  const [showProjectModal, setShowProjectModal] = useState(false);
   const [showSnapshotModal, setShowSnapshotModal] = useState(false);
+  const [projectName, setProjectName] = useState(project.name);
+  const [projectClientName, setProjectClientName] = useState(
+    project.client_name ?? "",
+  );
+  const [projectCampaignName, setProjectCampaignName] = useState(
+    project.campaign_name ?? "",
+  );
+  const [projectDescription, setProjectDescription] = useState(
+    project.description ?? "",
+  );
   const [creativeUnitName, setCreativeUnitName] = useState("");
   const [showVersionsModal, setShowVersionsModal] = useState(false);
   const [versionSourceNodeId, setVersionSourceNodeId] = useState<string | null>(
@@ -235,7 +250,7 @@ export function TreeEditor({
 
     return rows.filter((row) => row.pathText.toLowerCase().includes(query));
   }, [rows, search]);
-  const projectTitle = [project.client_name, project.name]
+  const projectTitle = [projectClientName, projectCampaignName || projectName]
     .filter(Boolean)
     .join(" · ");
   const defaultOutputFormats =
@@ -416,6 +431,26 @@ export function TreeEditor({
     });
   }
 
+  function saveProjectDetails() {
+    startTransition(async () => {
+      try {
+        await updateProjectDetails(project.id, {
+          campaignName: projectCampaignName,
+          clientName: projectClientName,
+          description: projectDescription,
+          name: projectName,
+        });
+        setShowProjectModal(false);
+        setStatus("Project details saved");
+        router.refresh();
+      } catch (error) {
+        setStatus(
+          error instanceof Error ? error.message : "Could not save project",
+        );
+      }
+    });
+  }
+
   function createSnapshot(closeAfterSave = false) {
     startTransition(async () => {
       try {
@@ -443,7 +478,7 @@ export function TreeEditor({
   return (
     <div className="dt-frame" style={densityVars[density]}>
       <TopBar
-        projectName={project.name}
+        projectName={projectName}
         snapshotCount={initialSnapshots.length}
         status={status}
         workspaceName={workspaceName}
@@ -452,9 +487,10 @@ export function TreeEditor({
         creative={counts.creativeDeliverables}
         cuts={cuts}
         description={
-          project.description ||
+          projectDescription ||
           "Build, revise, and snapshot the current working deliverables matrix."
         }
+        onEdit={() => setShowProjectModal(true)}
         ratios={ratios}
         terminals={counts.terminalFiles}
         title={projectTitle}
@@ -532,8 +568,8 @@ export function TreeEditor({
                         startInlineEdit(row.node);
                       }}
                       openMenu={openMenuNodeId === row.node.id}
-                      projectClientName={project.client_name}
-                      projectName={project.name}
+                      projectClientName={projectClientName || null}
+                      projectName={projectCampaignName || projectName}
                       row={row}
                     />
                   ))}
@@ -557,6 +593,20 @@ export function TreeEditor({
               onForkTypesChange={updateEnabledForkTypes}
               onOutputChange={updateOutputDefaults}
             />
+            <ExportPanel
+              filenameCase={filenameCase}
+              filenameSeparator={filenameSeparator}
+              includeTechnical={includeTechnicalExports}
+              onIncludeTechnical={setIncludeTechnicalExports}
+              project={{
+                ...project,
+                campaign_name: projectCampaignName || null,
+                client_name: projectClientName || null,
+                description: projectDescription || null,
+                name: projectName,
+              }}
+              tree={tree}
+            />
             <SnapshotPanel
               isPending={isPending}
               onNotes={setSnapshotNotes}
@@ -566,14 +616,6 @@ export function TreeEditor({
               snapshotNotes={snapshotNotes}
               snapshots={initialSnapshots}
               status={status}
-            />
-            <ExportPanel
-              filenameCase={filenameCase}
-              filenameSeparator={filenameSeparator}
-              includeTechnical={includeTechnicalExports}
-              onIncludeTechnical={setIncludeTechnicalExports}
-              project={project}
-              tree={tree}
             />
             <SnapshotComparePanel
               diff={snapshotDiff}
@@ -625,6 +667,22 @@ export function TreeEditor({
             </button>
           </div>
         </Modal>
+      ) : null}
+
+      {showProjectModal ? (
+        <ProjectDetailsModal
+          campaignName={projectCampaignName}
+          clientName={projectClientName}
+          description={projectDescription}
+          isPending={isPending}
+          name={projectName}
+          onCampaignName={setProjectCampaignName}
+          onClientName={setProjectClientName}
+          onClose={() => setShowProjectModal(false)}
+          onDescription={setProjectDescription}
+          onName={setProjectName}
+          onSave={saveProjectDetails}
+        />
       ) : null}
 
       {showSnapshotModal ? (
@@ -704,6 +762,7 @@ function ProjectHeader({
   creative,
   cuts,
   description,
+  onEdit,
   ratios,
   terminals,
   title,
@@ -711,15 +770,26 @@ function ProjectHeader({
   creative: number;
   cuts: number;
   description: string;
+  onEdit: () => void;
   ratios: number;
   terminals: number;
   title: string;
 }) {
   return (
-    <header className="dt-projhead">
+    <header className="dt-projhead group">
       <div>
         <div className="dt-eyebrow">Project · Campaign</div>
-        <h1>{title}</h1>
+        <div className="flex items-center gap-2">
+          <h1>{title}</h1>
+          <button
+            className="dt-btn h-7 px-2 opacity-0 transition group-hover:opacity-100"
+            onClick={onEdit}
+            title="Edit project details"
+            type="button"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+        </div>
         <div className="dt-sub max-w-[520px]">{description}</div>
       </div>
       <div className="dt-statgrid">
@@ -1261,6 +1331,7 @@ function ProjectSettingsPanel({
   onOutputChange: (formats: string[], autoApply: boolean) => void;
 }) {
   const [activeTab, setActiveTab] = useState<"outputs" | "taxonomy">("outputs");
+  const [isCollapsed, setIsCollapsed] = useState(false);
   const baseFormats = ["H264 MP4", "ProRes MOV", "WebM"];
   const [customFormat, setCustomFormat] = useState("");
   const options = Array.from(new Set([...baseFormats, ...formats]));
@@ -1292,8 +1363,29 @@ function ProjectSettingsPanel({
     <section className="dt-panel p-4">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold">Project setup</h2>
-        <span className="dt-eyebrow">Project</span>
+        <button
+          className="dt-btn h-7 px-2"
+          onClick={() => setIsCollapsed((current) => !current)}
+          type="button"
+        >
+          <ChevronRight
+            className="h-3.5 w-3.5 transition-transform"
+            style={{ transform: isCollapsed ? "rotate(0deg)" : "rotate(90deg)" }}
+          />
+          {isCollapsed ? "Show" : "Hide"}
+        </button>
       </div>
+      {isCollapsed ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {getTaxonomyFlow(enabledForkTypes).map((type) => (
+            <span className="dt-chip" key={type}>
+              {nodeTypeLabels[type]}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {!isCollapsed ? (
+        <>
       <div className="dt-segment mt-4 w-full">
         <button
           className={activeTab === "outputs" ? "is-active" : ""}
@@ -1463,6 +1555,8 @@ function ProjectSettingsPanel({
           </div>
         </div>
       )}
+        </>
+      ) : null}
     </section>
   );
 }
@@ -1624,7 +1718,7 @@ function ExportPanel({
         >
           <div className="grid gap-3">
             <textarea
-              className="dt-input mono min-h-[70vh] resize-y whitespace-pre text-[10.5px] leading-snug"
+              className="dt-input mono h-[82vh] min-h-[640px] resize-y whitespace-pre text-[9px] leading-snug"
               readOnly
               value={textExport}
             />
@@ -2039,6 +2133,94 @@ function Modal({
         <div className="mt-4">{children}</div>
       </div>
     </div>
+  );
+}
+
+function ProjectDetailsModal({
+  campaignName,
+  clientName,
+  description,
+  isPending,
+  name,
+  onCampaignName,
+  onClientName,
+  onClose,
+  onDescription,
+  onName,
+  onSave,
+}: {
+  campaignName: string;
+  clientName: string;
+  description: string;
+  isPending: boolean;
+  name: string;
+  onCampaignName: (name: string) => void;
+  onClientName: (name: string) => void;
+  onClose: () => void;
+  onDescription: (description: string) => void;
+  onName: (name: string) => void;
+  onSave: () => void;
+}) {
+  return (
+    <Modal onClose={onClose} title="Edit project">
+      <div className="grid gap-4">
+        <label className="dt-field">
+          Client name
+          <input
+            autoFocus
+            className="dt-input"
+            onChange={(event) => onClientName(event.target.value)}
+            placeholder="Client"
+            value={clientName}
+          />
+        </label>
+        <label className="dt-field">
+          Project name
+          <input
+            className="dt-input"
+            onChange={(event) => onName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && name.trim()) {
+                onSave();
+              }
+            }}
+            placeholder="Project / Campaign"
+            value={name}
+          />
+        </label>
+        <label className="dt-field">
+          Campaign name
+          <input
+            className="dt-input"
+            onChange={(event) => onCampaignName(event.target.value)}
+            placeholder="Optional campaign label"
+            value={campaignName}
+          />
+        </label>
+        <label className="dt-field">
+          Description
+          <textarea
+            className="dt-input min-h-20"
+            onChange={(event) => onDescription(event.target.value)}
+            placeholder="Project notes or scope context"
+            value={description}
+          />
+        </label>
+        <div className="flex justify-end gap-2">
+          <button className="dt-btn" onClick={onClose} type="button">
+            Cancel
+          </button>
+          <button
+            className="dt-btn primary"
+            disabled={isPending || !name.trim()}
+            onClick={onSave}
+            type="button"
+          >
+            Save project
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -2548,7 +2730,12 @@ function renderExportNode({
   const children = (node.children ?? []).flatMap((child) =>
     getVisibleExportNodes(child, includeTechnical),
   );
-  const line = isRoot ? node.label : `${"\t".repeat(depth)}→ ${node.label}`;
+  const count = countTerminalFilesInExportNode(node);
+  const label =
+    node.nodeType === "output_format" || count === 0
+      ? node.label
+      : `${node.label} (${count})`;
+  const line = isRoot ? label : `${"\t".repeat(depth)}→ ${label}`;
 
   return [
     line,
@@ -2574,6 +2761,17 @@ function getVisibleExportNodes(
   }
 
   return [node];
+}
+
+function countTerminalFilesInExportNode(node: DeliverableNode): number {
+  if (node.nodeType === "output_format") {
+    return 1;
+  }
+
+  return (node.children ?? []).reduce(
+    (total, child) => total + countTerminalFilesInExportNode(child),
+    0,
+  );
 }
 
 function buildCsvExport(paths: ExportPath[]) {
