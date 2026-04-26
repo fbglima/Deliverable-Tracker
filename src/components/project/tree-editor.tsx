@@ -61,6 +61,7 @@ type TreeEditorProps = {
 type Density = "compact" | "comfortable" | "roomy";
 type AddVersionsTarget = "selected" | "all";
 type ExportFormat = "csv";
+type SheetsExportMode = "creative" | "terminal";
 type ViewMode = "rows" | "pivot" | "tree";
 
 type VisibleRow = {
@@ -1655,7 +1656,10 @@ function ExportPanel({
   tree: DeliverableTree;
 }) {
   const [showTextExport, setShowTextExport] = useState(false);
+  const [showSheetsExport, setShowSheetsExport] = useState(false);
+  const [sheetsMode, setSheetsMode] = useState<SheetsExportMode>("creative");
   const [copyStatus, setCopyStatus] = useState("Copy all");
+  const [sheetsCopyStatus, setSheetsCopyStatus] = useState("Copy for Sheets");
   const counts = calculateCounts(tree);
   const csvPaths = collectExportPaths(tree, project, {
     caseStyle: filenameCase,
@@ -1669,11 +1673,21 @@ function ExportPanel({
     project,
     tree,
   });
+  const sheetsExport = buildSheetsExport({
+    mode: sheetsMode,
+    paths: csvPaths,
+  });
 
   async function copyTextExport() {
     await navigator.clipboard.writeText(textExport);
     setCopyStatus("Copied");
     window.setTimeout(() => setCopyStatus("Copy all"), 1200);
+  }
+
+  async function copySheetsExport() {
+    await navigator.clipboard.writeText(sheetsExport);
+    setSheetsCopyStatus("Copied");
+    window.setTimeout(() => setSheetsCopyStatus("Copy for Sheets"), 1200);
   }
 
   function exportMatrix(format: ExportFormat) {
@@ -1687,6 +1701,23 @@ function ExportPanel({
     );
 
     downloadTextFile(content, `${baseName}.${format}`, "text/csv;charset=utf-8");
+  }
+
+  function downloadSheetsExport() {
+    const baseName = formatFilenameParts(
+      [
+        project.client_name,
+        project.name,
+        sheetsMode === "creative" ? "creative-matrix" : "terminal-files",
+      ].filter(Boolean) as string[],
+      { caseStyle: filenameCase, separator: filenameSeparator },
+    );
+
+    downloadTextFile(
+      sheetsExport,
+      `${baseName}.tsv`,
+      "text/tab-separated-values;charset=utf-8",
+    );
   }
 
   return (
@@ -1716,11 +1747,26 @@ function ExportPanel({
         />
         Enumerate deliverables.
       </label>
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <button className="dt-btn justify-center" onClick={() => setShowTextExport(true)} type="button">
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        <button
+          className="dt-btn justify-center"
+          onClick={() => setShowTextExport(true)}
+          type="button"
+        >
           Text
         </button>
-        <button className="dt-btn justify-center" onClick={() => exportMatrix("csv")} type="button">
+        <button
+          className="dt-btn justify-center"
+          onClick={() => setShowSheetsExport(true)}
+          type="button"
+        >
+          Sheets
+        </button>
+        <button
+          className="dt-btn justify-center"
+          onClick={() => exportMatrix("csv")}
+          type="button"
+        >
           CSV
         </button>
       </div>
@@ -1749,6 +1795,56 @@ function ExportPanel({
               </button>
               <button className="dt-btn primary" onClick={copyTextExport} type="button">
                 {copyStatus}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+      {showSheetsExport ? (
+        <Modal
+          maxWidthClassName="max-w-5xl"
+          onClose={() => setShowSheetsExport(false)}
+          title="Google Sheets export"
+        >
+          <div className="grid gap-3">
+            <div className="flex flex-wrap gap-2">
+              <button
+                className={`dt-btn ${sheetsMode === "creative" ? "primary" : ""}`}
+                onClick={() => setSheetsMode("creative")}
+                type="button"
+              >
+                Creative matrix
+              </button>
+              <button
+                className={`dt-btn ${sheetsMode === "terminal" ? "primary" : ""}`}
+                onClick={() => setSheetsMode("terminal")}
+                type="button"
+              >
+                Terminal files
+              </button>
+            </div>
+            <textarea
+              className="dt-input mono h-[68vh] min-h-[520px] resize-y whitespace-pre text-[10px] leading-snug"
+              readOnly
+              value={sheetsExport}
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                className="dt-btn"
+                onClick={() => setShowSheetsExport(false)}
+                type="button"
+              >
+                Close
+              </button>
+              <button className="dt-btn" onClick={downloadSheetsExport} type="button">
+                Download TSV
+              </button>
+              <button
+                className="dt-btn primary"
+                onClick={copySheetsExport}
+                type="button"
+              >
+                {sheetsCopyStatus}
               </button>
             </div>
           </div>
@@ -2872,8 +2968,144 @@ function buildCsvExport(paths: ExportPath[]) {
   return [headers, ...rows].map((row) => row.map(escapeCsvCell).join(",")).join("\n");
 }
 
+function buildSheetsExport({
+  mode,
+  paths,
+}: {
+  mode: SheetsExportMode;
+  paths: ExportPath[];
+}) {
+  const rows =
+    mode === "creative"
+      ? buildCreativeMatrixRows(paths)
+      : buildTerminalFileRows(paths);
+
+  return rows.map((row) => row.map(escapeSheetCell).join("\t")).join("\n");
+}
+
+function buildCreativeMatrixRows(paths: ExportPath[]) {
+  const headers = [
+    "Creative Unit",
+    "Duration",
+    "Aspect Ratio",
+    "Platform",
+    "Localization",
+    "Technical Variants",
+    "Creative Attention",
+    "Output Formats",
+    "Terminal File Count",
+    "Notes",
+    "Assumptions / Questions",
+  ];
+  const groups = new Map<
+    string,
+    {
+      outputFormats: Set<string>;
+      terminalFileCount: number;
+      technicalVariants: Set<string>;
+      values: Record<MatrixNodeType, string>;
+    }
+  >();
+
+  paths.forEach((path) => {
+    const values = getPathValues(path);
+    const key = [
+      values.creative_unit,
+      values.duration,
+      values.aspect_ratio,
+      values.platform,
+      values.localization,
+    ].join("|");
+    const group =
+      groups.get(key) ??
+      {
+        outputFormats: new Set<string>(),
+        technicalVariants: new Set<string>(),
+        terminalFileCount: 0,
+        values,
+      };
+
+    if (values.output_format) {
+      group.outputFormats.add(values.output_format);
+    }
+
+    if (values.technical_variant) {
+      group.technicalVariants.add(values.technical_variant);
+    }
+
+    group.terminalFileCount += 1;
+    groups.set(key, group);
+  });
+
+  const rows = Array.from(groups.values()).map((group) => [
+    group.values.creative_unit,
+    group.values.duration,
+    group.values.aspect_ratio,
+    group.values.platform,
+    group.values.localization,
+    Array.from(group.technicalVariants).join(", "),
+    "Yes",
+    Array.from(group.outputFormats).join(", "),
+    String(group.terminalFileCount),
+    "",
+    "",
+  ]);
+
+  return [headers, ...rows];
+}
+
+function buildTerminalFileRows(paths: ExportPath[]) {
+  const headers = [
+    "Creative Unit",
+    "Duration",
+    "Aspect Ratio",
+    "Platform",
+    "Localization",
+    "Technical Variant",
+    "Output Format",
+    "Expected Filename",
+    "Notes",
+  ];
+  const rows = paths.map((path) => {
+    const values = getPathValues(path);
+
+    return [
+      values.creative_unit,
+      values.duration,
+      values.aspect_ratio,
+      values.platform,
+      values.localization,
+      values.technical_variant,
+      values.output_format,
+      path.filename,
+      "",
+    ];
+  });
+
+  return [headers, ...rows];
+}
+
+function getPathValues(path: ExportPath) {
+  return Object.fromEntries(
+    allNodeTypes.map((type) => [
+      type,
+      path.nodes.find((node) => node.nodeType === type)?.label ?? "",
+    ]),
+  ) as Record<MatrixNodeType, string>;
+}
+
 function escapeCsvCell(value: string) {
   return `"${value.replace(/"/g, '""')}"`;
+}
+
+function escapeSheetCell(value: string) {
+  const cleanValue = value.replace(/\r/g, "");
+
+  if (/["\n\t]/.test(cleanValue)) {
+    return `"${cleanValue.replace(/"/g, '""')}"`;
+  }
+
+  return cleanValue;
 }
 
 function downloadTextFile(content: string, filename: string, mimeType: string) {
