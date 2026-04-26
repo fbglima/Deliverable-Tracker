@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Clock3,
   Download,
+  ExternalLink,
   FileText,
   GitCompareArrows,
   Languages,
@@ -1657,8 +1658,11 @@ function ExportPanel({
 }) {
   const [showTextExport, setShowTextExport] = useState(false);
   const [showSheetsExport, setShowSheetsExport] = useState(false);
+  const [showGoogleAuthModal, setShowGoogleAuthModal] = useState(false);
   const [sheetsMode, setSheetsMode] = useState<SheetsExportMode>("creative");
   const [copyStatus, setCopyStatus] = useState("Copy all");
+  const [googleExportStatus, setGoogleExportStatus] = useState("");
+  const [isGoogleExporting, setIsGoogleExporting] = useState(false);
   const [sheetsCopyStatus, setSheetsCopyStatus] = useState("Copy for Sheets");
   const counts = calculateCounts(tree);
   const csvPaths = collectExportPaths(tree, project, {
@@ -1720,6 +1724,74 @@ function ExportPanel({
     );
   }
 
+  async function exportToGoogleSheets() {
+    setGoogleExportStatus("");
+    setIsGoogleExporting(true);
+
+    try {
+      const statusResponse = await fetch("/api/google/sheets/status");
+      const googleStatus = (await statusResponse.json()) as {
+        configured: boolean;
+        connected: boolean;
+      };
+
+      if (!googleStatus.configured) {
+        setGoogleExportStatus(
+          "Google export needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET configured first.",
+        );
+        setShowGoogleAuthModal(true);
+        return;
+      }
+
+      if (!googleStatus.connected) {
+        setShowGoogleAuthModal(true);
+        return;
+      }
+
+      const exportResponse = await fetch("/api/google/sheets/export", {
+        body: JSON.stringify({
+          filenameCase,
+          filenameSeparator,
+          project,
+          tree,
+        }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+      });
+      const result = (await exportResponse.json()) as {
+        error?: string;
+        needsAuth?: boolean;
+        spreadsheetUrl?: string;
+      };
+
+      if (result.needsAuth) {
+        setShowGoogleAuthModal(true);
+        return;
+      }
+
+      if (!exportResponse.ok || !result.spreadsheetUrl) {
+        throw new Error(result.error ?? "Could not export to Google Sheets.");
+      }
+
+      window.open(result.spreadsheetUrl, "_blank", "noopener,noreferrer");
+      setGoogleExportStatus("Google Sheet created.");
+    } catch (error) {
+      setGoogleExportStatus(
+        error instanceof Error ? error.message : "Could not export to Google Sheets.",
+      );
+    } finally {
+      setIsGoogleExporting(false);
+    }
+  }
+
+  function connectGoogle() {
+    const returnTo = `${window.location.pathname}${window.location.search}`;
+
+    window.location.href = `/api/google/oauth/start?returnTo=${encodeURIComponent(returnTo)}`;
+  }
+
   return (
     <section className="dt-panel p-4">
       <div className="flex items-center justify-between gap-3">
@@ -1770,6 +1842,18 @@ function ExportPanel({
           CSV
         </button>
       </div>
+      <button
+        className="dt-btn primary mt-2 w-full justify-center"
+        disabled={isGoogleExporting}
+        onClick={exportToGoogleSheets}
+        type="button"
+      >
+        <ExternalLink className="h-4 w-4" />
+        {isGoogleExporting ? "Creating Google Sheet..." : "Export to Google Sheets"}
+      </button>
+      {googleExportStatus ? (
+        <p className="dt-sub mt-2">{googleExportStatus}</p>
+      ) : null}
       <div className="mono mt-3 text-[10.5px] text-[var(--ink-3)]">
         {csvPaths.length} terminal rows ready
       </div>
@@ -1795,6 +1879,40 @@ function ExportPanel({
               </button>
               <button className="dt-btn primary" onClick={copyTextExport} type="button">
                 {copyStatus}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+      {showGoogleAuthModal ? (
+        <Modal
+          maxWidthClassName="max-w-lg"
+          onClose={() => setShowGoogleAuthModal(false)}
+          title="Connect Google"
+        >
+          <div className="grid gap-4">
+            <p className="text-sm leading-6 text-[var(--ink-2)]">
+              Google Sheets export creates a new spreadsheet in your Google
+              Drive with formatted tabs, dropdowns, checkboxes, and counts.
+            </p>
+            {googleExportStatus ? (
+              <p className="dt-sub">{googleExportStatus}</p>
+            ) : null}
+            <div className="flex justify-end gap-2">
+              <button
+                className="dt-btn"
+                onClick={() => setShowGoogleAuthModal(false)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="dt-btn primary"
+                disabled={googleExportStatus.includes("GOOGLE_CLIENT")}
+                onClick={connectGoogle}
+                type="button"
+              >
+                Connect Google
               </button>
             </div>
           </div>
