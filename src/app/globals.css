@@ -2,8 +2,48 @@
 @import "@xyflow/react/dist/style.css";
 
 :root {
-  --background: #f6f5f2;
-  --foreground: #1f2328;
+  --bg-app: #f6f4ef;
+  --bg-panel: #fdfcfa;
+  --bg-elevated: #ffffff;
+  --bg-subtle: #f0ede6;
+  --bg-input: #ffffff;
+  --bg-tint: #ebe8df;
+
+  --line: rgba(20, 18, 14, 0.08);
+  --line-strong: rgba(20, 18, 14, 0.14);
+  --line-faint: rgba(20, 18, 14, 0.05);
+
+  --ink-1: #1a1815;
+  --ink-2: #4a4640;
+  --ink-3: #807a70;
+  --ink-4: #a8a298;
+
+  --accent: oklch(0.95 0.4 130);
+  --accent-soft: oklch(0.96 0.2 130);
+  --accent-tint: oklch(0.98 0.08 130);
+  --accent-ink: oklch(0.4 0.16 130);
+
+  --good: oklch(0.66 0.1 155);
+  --good-soft: oklch(0.94 0.03 155);
+  --warn: oklch(0.74 0.1 75);
+  --warn-soft: oklch(0.95 0.03 75);
+
+  --row-h: 38px;
+  --row-px: 14px;
+  --row-fs: 13px;
+  --row-meta-fs: 11.5px;
+
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+  --r-xl: 14px;
+
+  --shadow-card: 0 1px 0 rgba(20, 18, 14, 0.02), 0 1px 2px rgba(20, 18, 14, 0.04);
+  --shadow-hover: 0 1px 0 rgba(20, 18, 14, 0.03), 0 4px 14px rgba(20, 18, 14, 0.06);
+  --shadow-pop: 0 12px 36px rgba(20, 18, 14, 0.10), 0 2px 6px rgba(20, 18, 14, 0.06);
+
+  --background: var(--bg-app);
+  --foreground: var(--ink-1);
 }
 
 @theme inline {
@@ -16,6 +56,8 @@
 body {
   background: var(--background);
   color: var(--foreground);
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "ss01", "cv11";
 }
 
 button,
@@ -27,4 +69,287 @@ select {
 
 .react-flow__node {
   border-radius: 8px;
+}
+
+.mono {
+  font-family: var(--font-jetbrains-mono), "SF Mono", Menlo, Consolas, monospace;
+  font-feature-settings: "tnum", "zero";
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+.dt-frame {
+  min-height: 100vh;
+  background: var(--bg-app);
+  color: var(--ink-1);
+  display: flex;
+  flex-direction: column;
+}
+
+.dt-topbar {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-panel);
+  flex-shrink: 0;
+}
+
+.dt-logo {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: var(--ink-1);
+  color: var(--bg-panel);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-jetbrains-mono), monospace;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.dt-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-3);
+  font-family: var(--font-jetbrains-mono), monospace;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  min-width: 0;
+}
+
+.dt-crumb b {
+  color: var(--ink-1);
+  font-weight: 500;
+}
+
+.dt-crumb .sep {
+  opacity: 0.45;
+}
+
+.dt-snapstrip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font-family: var(--font-jetbrains-mono), monospace;
+  font-size: 11px;
+}
+
+.dt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--bg-subtle);
+  color: var(--ink-2);
+  font-family: var(--font-jetbrains-mono), monospace;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.dt-chip.is-current {
+  background: var(--ink-1);
+  color: var(--bg-panel);
+}
+
+.dt-projhead {
+  padding: 22px 28px 18px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 1px solid var(--line-faint);
+}
+
+.dt-eyebrow {
+  color: var(--ink-3);
+  font-family: var(--font-jetbrains-mono), monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.dt-projhead h1 {
+  margin: 4px 0 6px;
+  color: var(--ink-1);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.dt-sub {
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.dt-statgrid {
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+}
+
+.dt-stat {
+  min-width: 96px;
+  padding: 10px 18px;
+  border-right: 1px solid var(--line);
+}
+
+.dt-stat:last-child {
+  border-right: 0;
+}
+
+.dt-stat .v {
+  color: var(--ink-1);
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+
+.dt-stat .l {
+  margin-top: 4px;
+  color: var(--ink-3);
+  font-family: var(--font-jetbrains-mono), monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.dt-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 28px;
+  border-bottom: 1px solid var(--line-faint);
+  background: var(--bg-app);
+}
+
+.dt-segment {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+}
+
+.dt-segment button {
+  height: 100%;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dt-segment button:last-child {
+  border-right: 0;
+}
+
+.dt-segment button.is-active {
+  background: var(--bg-subtle);
+  color: var(--ink-1);
+  font-weight: 500;
+}
+
+.dt-btn {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+  color: var(--ink-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dt-btn:hover {
+  background: var(--bg-subtle);
+  color: var(--ink-1);
+}
+
+.dt-btn.primary {
+  border-color: var(--ink-1);
+  background: var(--ink-1);
+  color: var(--bg-panel);
+}
+
+.dt-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.dt-search {
+  height: 30px;
+  max-width: 280px;
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.dt-canvas {
+  flex: 1;
+  padding: 16px 28px 28px;
+  overflow: auto;
+}
+
+.dt-panel {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-card);
+}
+
+.dt-field {
+  display: grid;
+  gap: 5px;
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.dt-input {
+  min-height: 32px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-input);
+  color: var(--ink-1);
+  padding: 7px 9px;
+  outline: none;
+}
+
+.dt-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
 }

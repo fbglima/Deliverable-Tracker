@@ -22,17 +22,17 @@ export default async function WorkspacesPage() {
   const memberships = (data ?? []) as unknown as WorkspaceMembership[];
 
   return (
-    <main className="min-h-screen bg-[#f6f5f2] px-6 py-8 text-[#1f2328]">
+    <main className="min-h-screen bg-[var(--bg-app)] px-6 py-8 text-[var(--ink-1)]">
       <div className="mx-auto max-w-6xl">
-        <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[#d8d2c8] pb-6">
+        <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--line)] pb-6">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#6f6256]">
+            <p className="dt-eyebrow">
               Deliverable Tracker
             </p>
             <h1 className="mt-2 text-3xl font-semibold">Workspaces</h1>
           </div>
           <form action={signOut}>
-            <button className="rounded-md border border-[#cfc8bd] px-4 py-2 text-sm font-semibold hover:bg-white">
+            <button className="dt-btn">
               Sign out
             </button>
           </form>
@@ -45,25 +45,25 @@ export default async function WorkspacesPage() {
               {memberships.length ? (
                 memberships.map((membership) => (
                   <Link
-                    className="rounded-lg border border-[#d8d2c8] bg-white p-5 shadow-sm transition hover:border-[#496c7a]"
+                    className="dt-panel block p-5 transition hover:border-[var(--line-strong)] hover:shadow-[var(--shadow-hover)]"
                     href={`/workspaces/${membership.workspaces.id}`}
                     key={membership.workspaces.id}
                   >
                     <div className="flex items-center justify-between gap-4">
                       <div>
                         <h3 className="font-semibold">{membership.workspaces.name}</h3>
-                        <p className="mt-1 text-sm text-[#69707a]">
+                        <p className="dt-sub mt-1">
                           Role: {membership.role}
                         </p>
                       </div>
-                      <span className="text-sm font-semibold text-[#496c7a]">
+                      <span className="mono text-xs font-semibold text-[var(--accent-ink)]">
                         Open
                       </span>
                     </div>
                   </Link>
                 ))
               ) : (
-                <div className="rounded-lg border border-dashed border-[#cfc8bd] bg-white p-6 text-sm text-[#69707a]">
+                <div className="dt-panel border-dashed p-6 text-sm text-[var(--ink-3)]">
                   Create a workspace to start tracking campaign deliverables.
                 </div>
               )}
@@ -72,22 +72,22 @@ export default async function WorkspacesPage() {
 
           <form
             action={createWorkspace}
-            className="h-fit rounded-lg border border-[#d8d2c8] bg-white p-5 shadow-sm"
+            className="dt-panel h-fit p-5"
           >
             <div className="flex items-center gap-2">
               <Plus className="h-4 w-4" />
               <h2 className="font-semibold">New workspace</h2>
             </div>
-            <label className="mt-4 grid gap-1 text-sm font-medium">
+            <label className="dt-field mt-4">
               Workspace name
               <input
-                className="rounded-md border border-[#cfc8bd] px-3 py-2 outline-none focus:border-[#496c7a]"
+                className="dt-input"
                 name="name"
                 placeholder="Ways & Means"
                 required
               />
             </label>
-            <button className="mt-4 w-full rounded-md bg-[#1f2328] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#343941]">
+            <button className="dt-btn primary mt-4 w-full justify-center">
               Create workspace
             </button>
           </form>

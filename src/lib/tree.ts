@@ -125,6 +125,44 @@ export function calculateCounts(tree: DeliverableTree): MatrixCounts {
   };
 }
 
+export function countNodesByType(
+  tree: DeliverableTree,
+  nodeType: MatrixNodeType,
+) {
+  const labels = new Set<string>();
+
+  function walk(node: DeliverableNode) {
+    if (node.nodeType === nodeType) {
+      labels.add(node.label);
+    }
+
+    node.children?.forEach(walk);
+  }
+
+  tree.nodes.forEach(walk);
+
+  return labels.size;
+}
+
+export function countTerminalsForNode(node: DeliverableNode) {
+  let total = 0;
+
+  function walk(current: DeliverableNode) {
+    if (!current.children?.length) {
+      if (current.nodeType === "output_format") {
+        total += 1;
+      }
+      return;
+    }
+
+    current.children.forEach(walk);
+  }
+
+  walk(node);
+
+  return total;
+}
+
 export function normalizeTree(value: unknown): DeliverableTree {
   if (isDeliverableTree(value)) {
     return value;

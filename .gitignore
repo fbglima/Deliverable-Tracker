@@ -13,6 +13,9 @@
 # testing
 /coverage
 
+# design handoff references
+/Design Files/
+
 # next.js
 /.next/
 /out/
