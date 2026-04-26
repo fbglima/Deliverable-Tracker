@@ -52,6 +52,8 @@ type VisibleRow = {
   depth: number;
   last: boolean;
   ancestorsLast: boolean[];
+  pathIds: string[];
+  pathLabels: string[];
   pathText: string;
 };
 
@@ -94,6 +96,7 @@ export function TreeEditor({
   const [search, setSearch] = useState("");
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [editingLabel, setEditingLabel] = useState("");
+  const [hoveredPathIds, setHoveredPathIds] = useState<string[]>([]);
   const [openMenuNodeId, setOpenMenuNodeId] = useState<string | null>(null);
   const [showCreativeUnitModal, setShowCreativeUnitModal] = useState(false);
   const [creativeUnitName, setCreativeUnitName] = useState("");
@@ -350,19 +353,21 @@ export function TreeEditor({
                   {filteredRows.map((row) => (
                     <MatrixRow
                       editingLabel={editingLabel}
-                      editingNodeId={editingNodeId}
-                      isOpen={openIds.has(row.node.id)}
-                      isSelected={selectedNodeId === row.node.id}
+                  editingNodeId={editingNodeId}
+                  highlighted={hoveredPathIds.includes(row.node.id)}
+                  isOpen={openIds.has(row.node.id)}
+                  isSelected={selectedNodeId === row.node.id}
                       key={row.node.id}
                       onCommitEdit={commitInlineEdit}
                       onDelete={() => deleteNode(row.node.id)}
                       onEditLabel={setEditingLabel}
-                      onMenu={() =>
-                        setOpenMenuNodeId((current) =>
-                          current === row.node.id ? null : row.node.id,
-                        )
-                      }
-                      onOpenAddVersions={() => openAddVersions(row.node.id)}
+                  onMenu={() =>
+                    setOpenMenuNodeId((current) =>
+                      current === row.node.id ? null : row.node.id,
+                    )
+                  }
+                  onHoverPath={setHoveredPathIds}
+                  onOpenAddVersions={() => openAddVersions(row.node.id)}
                       onSelect={() => toggleNode(row.node)}
                       onStartEdit={() => {
                         setOpenMenuNodeId(null);
@@ -650,11 +655,13 @@ function MatrixHeader() {
 function MatrixRow({
   editingLabel,
   editingNodeId,
+  highlighted,
   isOpen,
   isSelected,
   onCommitEdit,
   onDelete,
   onEditLabel,
+  onHoverPath,
   onMenu,
   onOpenAddVersions,
   onSelect,
@@ -664,11 +671,13 @@ function MatrixRow({
 }: {
   editingLabel: string;
   editingNodeId: string | null;
+  highlighted: boolean;
   isOpen: boolean;
   isSelected: boolean;
   onCommitEdit: () => void;
   onDelete: () => void;
   onEditLabel: (label: string) => void;
+  onHoverPath: (pathIds: string[]) => void;
   onMenu: () => void;
   onOpenAddVersions: () => void;
   onSelect: () => void;
@@ -682,18 +691,24 @@ function MatrixRow({
   const hasChildren = Boolean(node.children?.length);
 
   const isEditing = editingNodeId === node.id;
+  const showFilenamePreview = node.nodeType === "output_format" && highlighted;
 
   return (
     <div
       className="group relative grid w-full grid-cols-[minmax(0,1fr)_110px_90px_72px_72px_28px] items-center border-b border-[var(--line-faint)] bg-transparent py-0 pr-[var(--row-px)] pl-2 text-left text-[var(--ink-1)] transition hover:bg-[var(--bg-subtle)]"
       onClick={onSelect}
+      onMouseEnter={() => onHoverPath(row.pathIds)}
+      onMouseLeave={() => onHoverPath([])}
       style={{
         minHeight: "var(--row-h)",
         background: isSelected
           ? "var(--accent-tint)"
+          : highlighted
+            ? "var(--accent-tint)"
           : node.nodeType === "creative_unit"
             ? "var(--bg-panel)"
             : undefined,
+        boxShadow: highlighted ? "inset 3px 0 0 var(--accent-soft)" : undefined,
         fontSize: "var(--row-fs)",
       }}
       role="button"
@@ -740,22 +755,36 @@ function MatrixRow({
             value={editingLabel}
           />
         ) : (
-          <button
-            className={`ml-2 min-w-0 truncate text-left hover:underline ${
-              node.nodeType === "output_format" ? "mono" : ""
-            }`}
-            onClick={(event) => {
-              event.stopPropagation();
-              onStartEdit();
-            }}
-            style={{
-              fontWeight: node.nodeType === "creative_unit" ? 600 : 450,
-              letterSpacing: node.nodeType === "creative_unit" ? "-0.005em" : 0,
-            }}
-            type="button"
-          >
-            {node.label}
-          </button>
+          <>
+            <button
+              className={`ml-2 min-w-0 truncate text-left hover:underline ${
+                node.nodeType === "output_format" ? "mono" : ""
+              }`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onStartEdit();
+              }}
+              style={{
+                fontWeight: node.nodeType === "creative_unit" ? 600 : 450,
+                letterSpacing: node.nodeType === "creative_unit" ? "-0.005em" : 0,
+              }}
+              type="button"
+            >
+              {node.label}
+            </button>
+            {node.nodeType !== "output_format" ? (
+              <button
+                className="ml-2 hidden shrink-0 rounded-full border border-[var(--line)] bg-[var(--bg-panel)] px-2 py-0.5 text-[11px] font-medium text-[var(--accent-ink)] shadow-[var(--shadow-card)] hover:border-[var(--accent-soft)] group-hover:inline-flex"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onOpenAddVersions();
+                }}
+                type="button"
+              >
+                + Add versions
+              </button>
+            ) : null}
+          </>
         )}
         {node.nodeType === "creative_unit" && row.depth === 0 ? (
           <span className="mono ml-2 inline-flex h-[18px] items-center rounded-[var(--r-sm)] border border-dashed border-[var(--accent)] px-1.5 text-[10px] font-medium text-[var(--accent-ink)]">
@@ -778,16 +807,6 @@ function MatrixRow({
         {node.nodeType === "aspect_ratio" ? `× ${terminalCount}` : node.nodeType === "output_format" ? "—" : ""}
       </div>
       <div className="flex justify-end text-[var(--ink-4)] opacity-0 transition group-hover:opacity-100">
-        <button
-          className="mr-1 rounded-[var(--r-sm)] px-2 py-1 text-[11px] font-medium text-[var(--accent-ink)] hover:bg-[var(--bg-panel)]"
-          onClick={(event) => {
-            event.stopPropagation();
-            onOpenAddVersions();
-          }}
-          type="button"
-        >
-          +
-        </button>
         <button
           className="rounded-[var(--r-sm)] p-1 hover:bg-[var(--bg-panel)] hover:text-[var(--ink-1)]"
           onClick={(event) => {
@@ -825,6 +844,12 @@ function MatrixRow({
           >
             <Trash2 className="h-3.5 w-3.5" /> Delete row
           </button>
+        </div>
+      ) : null}
+      {showFilenamePreview ? (
+        <div className="pointer-events-none absolute left-10 top-[calc(100%-4px)] z-10 max-w-[760px] rounded-[var(--r-md)] bg-[var(--ink-1)] px-3 py-2 text-[11.5px] text-white shadow-[var(--shadow-pop)] mono">
+          <span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
+          {suggestFilename(row.pathLabels)}
         </div>
       ) : null}
     </div>
@@ -1349,25 +1374,39 @@ function flattenRows(nodes: DeliverableNode[], openIds: Set<string>) {
     siblings: DeliverableNode[],
     ancestorsLast: boolean[],
     path: string[],
+    pathIds: string[],
   ) {
     const last = index === siblings.length - 1;
     const nextPath = [...path, node.label];
+    const nextPathIds = [...pathIds, node.id];
     rows.push({
       node,
       depth,
       last,
       ancestorsLast,
+      pathIds: nextPathIds,
+      pathLabels: nextPath,
       pathText: nextPath.join(" / "),
     });
 
     if (openIds.has(node.id)) {
       node.children?.forEach((child, childIndex, childSiblings) =>
-        walk(child, depth + 1, childIndex, childSiblings, [...ancestorsLast, last], nextPath),
+        walk(
+          child,
+          depth + 1,
+          childIndex,
+          childSiblings,
+          [...ancestorsLast, last],
+          nextPath,
+          nextPathIds,
+        ),
       );
     }
   }
 
-  nodes.forEach((node, index, siblings) => walk(node, 0, index, siblings, [], []));
+  nodes.forEach((node, index, siblings) =>
+    walk(node, 0, index, siblings, [], [], []),
+  );
 
   return rows;
 }
@@ -1427,6 +1466,19 @@ function countNodesInSubtree(node: DeliverableNode, nodeType: MatrixNodeType) {
   walk(node);
 
   return count;
+}
+
+function suggestFilename(pathLabels: string[]) {
+  return `${pathLabels.map(slugifyPart).join("_")}_v001`;
+}
+
+function slugifyPart(value: string) {
+  return value
+    .trim()
+    .replace(/^:/, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
 }
 
 function scopeDescription(
