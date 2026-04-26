@@ -221,6 +221,7 @@ export function TreeEditor({
   const [compareSnapshotId, setCompareSnapshotId] = useState<string>(
     initialSnapshots[0]?.id ?? "",
   );
+  const [enumerateTextExports, setEnumerateTextExports] = useState(false);
   const [includeTechnicalExports, setIncludeTechnicalExports] = useState(false);
   const [status, setStatus] = useState("Unsaved edits stay local until saved.");
   const [isPending, startTransition] = useTransition();
@@ -594,9 +595,11 @@ export function TreeEditor({
               onOutputChange={updateOutputDefaults}
             />
             <ExportPanel
+              enumerateDeliverables={enumerateTextExports}
               filenameCase={filenameCase}
               filenameSeparator={filenameSeparator}
               includeTechnical={includeTechnicalExports}
+              onEnumerateDeliverables={setEnumerateTextExports}
               onIncludeTechnical={setIncludeTechnicalExports}
               project={{
                 ...project,
@@ -1633,16 +1636,20 @@ function SnapshotPanel({
 }
 
 function ExportPanel({
+  enumerateDeliverables,
   filenameCase,
   filenameSeparator,
   includeTechnical,
+  onEnumerateDeliverables,
   onIncludeTechnical,
   project,
   tree,
 }: {
+  enumerateDeliverables: boolean;
   filenameCase: FilenameCase;
   filenameSeparator: FilenameSeparator;
   includeTechnical: boolean;
+  onEnumerateDeliverables: (enumerateDeliverables: boolean) => void;
   onIncludeTechnical: (includeTechnical: boolean) => void;
   project: Project;
   tree: DeliverableTree;
@@ -1650,13 +1657,14 @@ function ExportPanel({
   const [showTextExport, setShowTextExport] = useState(false);
   const [copyStatus, setCopyStatus] = useState("Copy all");
   const counts = calculateCounts(tree);
-  const exportPaths = collectExportPaths(tree, project, {
+  const csvPaths = collectExportPaths(tree, project, {
     caseStyle: filenameCase,
-    includeTechnical,
+    includeTechnical: true,
     separator: filenameSeparator,
   });
   const textExport = buildTextTreeExport({
     counts,
+    enumerateDeliverables,
     includeTechnical,
     project,
     tree,
@@ -1671,7 +1679,7 @@ function ExportPanel({
   function exportMatrix(format: ExportFormat) {
     const content = buildExportContent({
       format,
-      paths: exportPaths,
+      paths: csvPaths,
     });
     const baseName = formatFilenameParts(
       [project.client_name, project.name, "deliverables"].filter(Boolean) as string[],
@@ -1699,6 +1707,15 @@ function ExportPanel({
         />
         Include technical variants in client-facing paths.
       </label>
+      <label className="mt-2 flex items-start gap-2 text-sm text-[var(--ink-2)]">
+        <input
+          checked={enumerateDeliverables}
+          className="mt-1"
+          onChange={(event) => onEnumerateDeliverables(event.target.checked)}
+          type="checkbox"
+        />
+        Enumerate deliverables.
+      </label>
       <div className="mt-4 grid grid-cols-2 gap-2">
         <button className="dt-btn justify-center" onClick={() => setShowTextExport(true)} type="button">
           Text
@@ -1708,7 +1725,7 @@ function ExportPanel({
         </button>
       </div>
       <div className="mono mt-3 text-[10.5px] text-[var(--ink-3)]">
-        {exportPaths.length} terminal rows ready
+        {csvPaths.length} terminal rows ready
       </div>
       {showTextExport ? (
         <Modal
@@ -2675,11 +2692,13 @@ function buildExportContent({
 
 function buildTextTreeExport({
   counts,
+  enumerateDeliverables,
   includeTechnical,
   project,
   tree,
 }: {
   counts: ReturnType<typeof calculateCounts>;
+  enumerateDeliverables: boolean;
   includeTechnical: boolean;
   project: Project;
   tree: DeliverableTree;
@@ -2687,7 +2706,10 @@ function buildTextTreeExport({
   const title = project.client_name
     ? `${project.client_name} - ${project.name}`
     : project.name;
-  const treeLines = renderExportTree(tree.nodes, includeTechnical);
+  const treeLines = renderExportTree(tree.nodes, {
+    enumerateDeliverables,
+    includeTechnical,
+  });
   const lines = [
     title,
     "",
@@ -2701,50 +2723,81 @@ function buildTextTreeExport({
   return lines.join("\n");
 }
 
-function renderExportTree(nodes: DeliverableNode[], includeTechnical: boolean) {
+function renderExportTree(
+  nodes: DeliverableNode[],
+  options: {
+    enumerateDeliverables: boolean;
+    includeTechnical: boolean;
+  },
+) {
+  const counter = { value: 0 };
   const visibleNodes = nodes.flatMap((node) =>
-    getVisibleExportNodes(node, includeTechnical),
+    getVisibleExportNodes(node, options),
   );
 
   return visibleNodes.flatMap((node) =>
     renderExportNode({
+      counter,
       depth: 0,
-      includeTechnical,
       isRoot: true,
       node,
+      options,
     }),
   );
 }
 
 function renderExportNode({
+  counter,
   depth,
-  includeTechnical,
   isRoot,
   node,
+  options,
 }: {
+  counter: { value: number };
   depth: number;
-  includeTechnical: boolean;
   isRoot: boolean;
   node: DeliverableNode;
+  options: {
+    enumerateDeliverables: boolean;
+    includeTechnical: boolean;
+  };
 }): string[] {
   const children = (node.children ?? []).flatMap((child) =>
-    getVisibleExportNodes(child, includeTechnical),
+    getVisibleExportNodes(child, options),
   );
-  const count = countTerminalFilesInExportNode(node);
+  const terminalCount = countTerminalFilesInExportNode(node);
+  const hiddenTerminalParent =
+    options.enumerateDeliverables &&
+    !options.includeTechnical &&
+    node.nodeType !== "output_format" &&
+    children.length === 0 &&
+    terminalCount > 0;
+  const outputLeaf = options.enumerateDeliverables && node.nodeType === "output_format";
+  let enumeration: number | null = null;
+
+  if (outputLeaf) {
+    counter.value += 1;
+    enumeration = counter.value;
+  } else if (hiddenTerminalParent) {
+    counter.value += terminalCount;
+    enumeration = counter.value;
+  }
+
   const label =
-    node.nodeType === "output_format" || count === 0
+    enumeration === null
       ? node.label
-      : `${node.label} (${count})`;
+      : `${node.label} (${enumeration})`;
   const line = isRoot ? label : `${"\t".repeat(depth)}→ ${label}`;
 
   return [
     line,
     ...children.flatMap((child) =>
       renderExportNode({
+        counter,
         depth: depth + 1,
-        includeTechnical,
         isRoot: false,
         node: child,
+        options,
       }),
     ),
   ];
@@ -2752,12 +2805,23 @@ function renderExportNode({
 
 function getVisibleExportNodes(
   node: DeliverableNode,
-  includeTechnical: boolean,
+  options: {
+    enumerateDeliverables: boolean;
+    includeTechnical: boolean;
+  },
 ): DeliverableNode[] {
-  if (!includeTechnical && node.nodeType === "technical_variant") {
+  if (!options.includeTechnical && node.nodeType === "technical_variant") {
     return (node.children ?? []).flatMap((child) =>
-      getVisibleExportNodes(child, includeTechnical),
+      getVisibleExportNodes(child, options),
     );
+  }
+
+  if (
+    options.enumerateDeliverables &&
+    !options.includeTechnical &&
+    node.nodeType === "output_format"
+  ) {
+    return [];
   }
 
   return [node];
