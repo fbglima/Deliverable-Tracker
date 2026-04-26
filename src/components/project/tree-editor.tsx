@@ -1,7 +1,9 @@
 "use client";
 
 import {
+  useEffect,
   useMemo,
+  useRef,
   useState,
   useTransition,
   type CSSProperties,
@@ -231,6 +233,9 @@ export function TreeEditor({
   const [aiInputText, setAiInputText] = useState("");
   const [aiResult, setAiResult] = useState<AiIntakeResult | null>(null);
   const [aiStatus, setAiStatus] = useState("");
+  const [aiAssistantEnabled, setAiAssistantEnabled] = useState(false);
+  const [showAiAssistant, setShowAiAssistant] = useState(false);
+  const [showAiIntroModal, setShowAiIntroModal] = useState(false);
   const [acceptedAiSuggestionIds, setAcceptedAiSuggestionIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -528,14 +533,14 @@ export function TreeEditor({
       };
 
       if (!response.ok) {
-        throw new Error(result.error ?? "Could not analyze intake.");
+        throw new Error(result.error ?? "Could not analyze with AI Assistant.");
       }
 
       setAiResult(result);
       setAiStatus("Review suggestions before applying them.");
     } catch (error) {
       setAiStatus(
-        error instanceof Error ? error.message : "Could not analyze intake.",
+        error instanceof Error ? error.message : "Could not analyze with AI Assistant.",
       );
     } finally {
       setIsAnalyzingIntake(false);
@@ -572,6 +577,21 @@ export function TreeEditor({
     });
   }
 
+  function openAiAssistant() {
+    if (!aiAssistantEnabled) {
+      setShowAiIntroModal(true);
+      return;
+    }
+
+    setShowAiAssistant((current) => !current);
+  }
+
+  function enableAiAssistant() {
+    setAiAssistantEnabled(true);
+    setShowAiAssistant(true);
+    setShowAiIntroModal(false);
+  }
+
   return (
     <div className="dt-frame" style={densityVars[density]}>
       <TopBar
@@ -598,6 +618,7 @@ export function TreeEditor({
         onDensity={setDensity}
         onSave={saveTree}
         onSearch={setSearch}
+        onToggleAiAssistant={openAiAssistant}
         onSnapshot={() => setShowSnapshotModal(true)}
         onView={setViewMode}
         search={search}
@@ -605,8 +626,8 @@ export function TreeEditor({
       />
 
       <main className="dt-canvas">
-        <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-          <div className="dt-panel overflow-hidden">
+        <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="dt-panel min-w-0 overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--bg-panel)] px-4 py-3">
               <div>
                 <h2 className="text-sm font-semibold">Deliverables</h2>
@@ -679,7 +700,7 @@ export function TreeEditor({
             )}
           </div>
 
-          <aside className="grid content-start gap-4">
+          <aside className="grid min-w-0 content-start gap-4">
             <ProjectSettingsPanel
               autoApply={autoApplyOutputFormats}
               enabledForkTypes={enabledForkTypes}
@@ -690,18 +711,21 @@ export function TreeEditor({
               onForkTypesChange={updateEnabledForkTypes}
               onOutputChange={updateOutputDefaults}
             />
-            <AiIntakePanel
-              acceptedSuggestionIds={acceptedAiSuggestionIds}
-              inputText={aiInputText}
-              isAnalyzing={isAnalyzingIntake}
-              onAccept={acceptAiSuggestion}
-              onAnalyze={analyzeIntake}
-              onInputText={setAiInputText}
-              onReject={rejectAiSuggestion}
-              rejectedSuggestionIds={rejectedAiSuggestionIds}
-              result={aiResult}
-              status={aiStatus}
-            />
+            {showAiAssistant ? (
+              <AiAssistantPanel
+                acceptedSuggestionIds={acceptedAiSuggestionIds}
+                inputText={aiInputText}
+                isAnalyzing={isAnalyzingIntake}
+                onAccept={acceptAiSuggestion}
+                onAnalyze={analyzeIntake}
+                onInputText={setAiInputText}
+                onReject={rejectAiSuggestion}
+                onSnapshot={() => setShowSnapshotModal(true)}
+                rejectedSuggestionIds={rejectedAiSuggestionIds}
+                result={aiResult}
+                status={aiStatus}
+              />
+            ) : null}
             <ExportPanel
               enumerateDeliverables={enumerateTextExports}
               filenameCase={filenameCase}
@@ -832,6 +856,43 @@ export function TreeEditor({
           type={versionsType}
         />
       ) : null}
+
+      {showAiIntroModal ? (
+        <Modal
+          maxWidthClassName="max-w-xl"
+          onClose={() => setShowAiIntroModal(false)}
+          title="Add AI Assistant?"
+        >
+          <div className="grid gap-4">
+            <div className="dt-ai-sheen h-1.5 rounded-full" />
+            <p className="text-sm leading-6 text-[var(--ink-2)]">
+              AI Assistant can help interpret project briefs, client messages,
+              and scope notes, then suggest delivery matrix changes and client
+              questions for your review.
+            </p>
+            <p className="rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--bg-subtle)] p-3 text-xs leading-5 text-[var(--ink-3)]">
+              Pasted copy is not stored by this app, but it is processed by
+              OpenAI servers. Use discretion with highly confidential material.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                className="dt-btn"
+                onClick={() => setShowAiIntroModal(false)}
+                type="button"
+              >
+                Not now
+              </button>
+              <button
+                className="dt-btn primary"
+                onClick={enableAiAssistant}
+                type="button"
+              >
+                Add AI Assistant
+              </button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
     </div>
   );
 }
@@ -928,6 +989,7 @@ function Toolbar({
   onDensity,
   onSave,
   onSearch,
+  onToggleAiAssistant,
   onSnapshot,
   onView,
   search,
@@ -938,6 +1000,7 @@ function Toolbar({
   onDensity: (density: Density) => void;
   onSave: () => void;
   onSearch: (search: string) => void;
+  onToggleAiAssistant: () => void;
   onSnapshot: () => void;
   onView: (view: ViewMode) => void;
   search: string;
@@ -995,6 +1058,16 @@ function Toolbar({
       </label>
 
       <div className="flex-1" />
+      <button
+        className="dt-ai-btn"
+        disabled={disabled}
+        onClick={onToggleAiAssistant}
+        type="button"
+      >
+        <Sparkles className="h-3.5 w-3.5" />
+        AI Assistant
+        <span className="mono text-[10px] opacity-75">⌥A</span>
+      </button>
       <button className="dt-btn" disabled={disabled} onClick={onSnapshot} type="button">
         <Sparkles className="h-3.5 w-3.5" /> Snapshot
       </button>
@@ -1743,7 +1816,7 @@ function SnapshotPanel({
   );
 }
 
-function AiIntakePanel({
+function AiAssistantPanel({
   acceptedSuggestionIds,
   inputText,
   isAnalyzing,
@@ -1751,6 +1824,7 @@ function AiIntakePanel({
   onAnalyze,
   onInputText,
   onReject,
+  onSnapshot,
   rejectedSuggestionIds,
   result,
   status,
@@ -1762,14 +1836,25 @@ function AiIntakePanel({
   onAnalyze: () => void;
   onInputText: (value: string) => void;
   onReject: (suggestionId: string) => void;
+  onSnapshot: () => void;
   rejectedSuggestionIds: Set<string>;
   result: AiIntakeResult | null;
   status: string;
 }) {
+  const resultRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (result) {
+      resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [result]);
+
   return (
-    <section className="dt-panel p-4">
+    <section className="dt-panel min-w-0 overflow-hidden">
+      <div className="dt-ai-sheen h-1.5" />
+      <div className="p-4">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold">AI intake</h2>
+        <h2 className="text-sm font-semibold">AI Assistant</h2>
         <Sparkles className="h-4 w-4 text-[var(--ink-3)]" />
       </div>
       <p className="dt-sub mt-2">
@@ -1781,7 +1866,7 @@ function AiIntakePanel({
         permission to process it with AI.
       </p>
       <textarea
-        className="dt-input mt-3 min-h-36 resize-y text-sm leading-5"
+        className="dt-input mt-3 min-h-40 resize-y text-sm leading-5 shadow-inner"
         onChange={(event) => onInputText(event.target.value)}
         placeholder="Paste client email, brief notes, or scope language..."
         value={inputText}
@@ -1797,7 +1882,16 @@ function AiIntakePanel({
       </button>
       {status ? <p className="dt-sub mt-2">{status}</p> : null}
       {result ? (
-        <div className="mt-4 grid gap-4">
+        <div className="mt-4 grid gap-4" ref={resultRef}>
+          <div className="rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--bg-subtle)] p-3">
+            <p className="text-xs leading-5 text-[var(--ink-3)]">
+              Snapshot the current matrix before accepting AI changes if you
+              want a clean before/after comparison.
+            </p>
+            <button className="dt-btn mt-2 w-full justify-center" onClick={onSnapshot} type="button">
+              Snapshot current state
+            </button>
+          </div>
           <div>
             <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--ink-3)]">
               Summary
@@ -1815,9 +1909,10 @@ function AiIntakePanel({
           />
           <AiNotes title="Possible changes/removals" notes={result.removalsOrChanges} />
           <AiNotes title="Assumptions" notes={result.assumptions} />
-          <AiNotes title="Client questions" notes={result.questions} />
+          <AiNotes copyable title="Client questions" notes={result.questions} />
         </div>
       ) : null}
+      </div>
     </section>
   );
 }
@@ -1835,6 +1930,45 @@ function SuggestionList({
   rejectedSuggestionIds: Set<string>;
   suggestions: AiSuggestion[];
 }) {
+  const [expandedSuggestionIds, setExpandedSuggestionIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [copiedSuggestionId, setCopiedSuggestionId] = useState<string | null>(
+    null,
+  );
+  const sortedSuggestions = [...suggestions].sort((first, second) => {
+    const firstDone =
+      acceptedSuggestionIds.has(first.id) || rejectedSuggestionIds.has(first.id);
+    const secondDone =
+      acceptedSuggestionIds.has(second.id) || rejectedSuggestionIds.has(second.id);
+
+    if (firstDone === secondDone) {
+      return 0;
+    }
+
+    return firstDone ? 1 : -1;
+  });
+
+  function toggleLogic(suggestionId: string) {
+    setExpandedSuggestionIds((current) => {
+      const next = new Set(current);
+
+      if (next.has(suggestionId)) {
+        next.delete(suggestionId);
+      } else {
+        next.add(suggestionId);
+      }
+
+      return next;
+    });
+  }
+
+  async function copyConfirmation(suggestion: AiSuggestion) {
+    await navigator.clipboard.writeText(suggestion.confirmationLanguage);
+    setCopiedSuggestionId(suggestion.id);
+    window.setTimeout(() => setCopiedSuggestionId(null), 1200);
+  }
+
   return (
     <div>
       <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--ink-3)]">
@@ -1842,13 +1976,17 @@ function SuggestionList({
       </h3>
       {suggestions.length ? (
         <div className="mt-2 grid gap-2">
-          {suggestions.map((suggestion) => {
+          {sortedSuggestions.map((suggestion) => {
             const accepted = acceptedSuggestionIds.has(suggestion.id);
             const rejected = rejectedSuggestionIds.has(suggestion.id);
+            const expanded = expandedSuggestionIds.has(suggestion.id);
+            const done = accepted || rejected;
 
             return (
               <div
-                className="rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--bg-panel)] p-3"
+                className={`rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--bg-panel)] p-3 transition ${
+                  done ? "opacity-55" : ""
+                }`}
                 key={suggestion.id}
               >
                 <div className="flex items-start justify-between gap-2">
@@ -1863,7 +2001,38 @@ function SuggestionList({
                 <p className="mono mt-2 break-words text-[10.5px] leading-5 text-[var(--ink-3)]">
                   {suggestion.path.map((item) => item.label).join(" → ")}
                 </p>
-                <div className="mt-3 flex justify-end gap-2">
+                {expanded ? (
+                  <div className="mt-3 rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--bg-subtle)] p-2">
+                    <p className="text-xs font-medium text-[var(--ink-2)]">
+                      Source logic
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-[var(--ink-3)]">
+                      {suggestion.reason}
+                    </p>
+                    {suggestion.sourceExcerpt ? (
+                      <p className="mt-2 border-l-2 border-[var(--accent)] pl-2 text-xs leading-5 text-[var(--ink-2)]">
+                        {suggestion.sourceExcerpt}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+                <div className="mt-3 flex flex-wrap justify-end gap-2">
+                  <button
+                    className="dt-btn"
+                    onClick={() => toggleLogic(suggestion.id)}
+                    type="button"
+                  >
+                    {expanded ? "Hide logic" : "Show logic"}
+                  </button>
+                  <button
+                    className="dt-btn"
+                    onClick={() => copyConfirmation(suggestion)}
+                    type="button"
+                  >
+                    {copiedSuggestionId === suggestion.id
+                      ? "Copied"
+                      : "Confirm wording"}
+                  </button>
                   <button
                     className="dt-btn"
                     disabled={accepted || rejected}
@@ -1893,21 +2062,38 @@ function SuggestionList({
 }
 
 function AiNotes({
+  copyable = false,
   notes,
   title,
 }: {
+  copyable?: boolean;
   notes: AiIntakeResult["questions"];
   title: string;
 }) {
+  const [copyStatus, setCopyStatus] = useState("Copy text");
+
   if (!notes.length) {
     return null;
   }
 
+  async function copyNotes() {
+    await navigator.clipboard.writeText(notes.map((note) => note.text).join("\n"));
+    setCopyStatus("Copied");
+    window.setTimeout(() => setCopyStatus("Copy text"), 1200);
+  }
+
   return (
     <div>
-      <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--ink-3)]">
-        {title}
-      </h3>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--ink-3)]">
+          {title}
+        </h3>
+        {copyable ? (
+          <button className="dt-btn h-7 px-2" onClick={copyNotes} type="button">
+            {copyStatus}
+          </button>
+        ) : null}
+      </div>
       <div className="mt-2 grid gap-2">
         {notes.map((note, index) => (
           <div

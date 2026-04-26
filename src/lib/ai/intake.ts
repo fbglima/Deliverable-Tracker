@@ -8,10 +8,12 @@ export type AiPathItem = {
 };
 
 export type AiSuggestion = {
+  confirmationLanguage: string;
   confidence: AiConfidence;
   id: string;
   path: AiPathItem[];
   reason: string;
+  sourceExcerpt: string;
   title: string;
 };
 

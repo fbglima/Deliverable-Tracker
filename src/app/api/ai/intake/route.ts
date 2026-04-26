@@ -86,6 +86,7 @@ export async function POST(request: NextRequest) {
           "Return only evidence-grounded suggestions. Do not invent deliverables that are not implied by the pasted text.",
           "Every suggested addition must be a concrete path using nodeType values from the schema.",
           "If a brief says something applies to all current creative units, expand it into one suggestion per creative unit.",
+          "For each addition, include a short sourceExcerpt copied or tightly paraphrased from the pasted text and a one-line confirmationLanguage sentence a producer could send to a client before accepting.",
           "Prefer questions and assumptions over low-confidence mutations.",
         ].join(" "),
         max_output_tokens: 3000,
@@ -188,6 +189,7 @@ const intakeSchema = {
         additionalProperties: false,
         properties: {
           confidence: { enum: confidenceEnum, type: "string" },
+          confirmationLanguage: { type: "string" },
           id: { type: "string" },
           path: {
             items: {
@@ -202,9 +204,18 @@ const intakeSchema = {
             type: "array",
           },
           reason: { type: "string" },
+          sourceExcerpt: { type: "string" },
           title: { type: "string" },
         },
-        required: ["id", "title", "confidence", "reason", "path"],
+        required: [
+          "id",
+          "title",
+          "confidence",
+          "reason",
+          "sourceExcerpt",
+          "confirmationLanguage",
+          "path",
+        ],
         type: "object",
       },
       type: "array",
