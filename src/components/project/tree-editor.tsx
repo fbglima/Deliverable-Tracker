@@ -101,6 +101,9 @@ export function TreeEditor({
   const [showCreativeUnitModal, setShowCreativeUnitModal] = useState(false);
   const [creativeUnitName, setCreativeUnitName] = useState("");
   const [showVersionsModal, setShowVersionsModal] = useState(false);
+  const [versionSourceNodeId, setVersionSourceNodeId] = useState<string | null>(
+    null,
+  );
   const [versionsType, setVersionsType] = useState<MatrixNodeType>("duration");
   const [versionsTarget, setVersionsTarget] =
     useState<AddVersionsTarget>("selected");
@@ -116,13 +119,14 @@ export function TreeEditor({
   const [status, setStatus] = useState("Unsaved edits stay local until saved.");
   const [isPending, startTransition] = useTransition();
 
-  const selectedNode = selectedNodeId
-    ? findNode(tree.nodes, selectedNodeId)
+  const versionSourceNode = versionSourceNodeId
+    ? findNode(tree.nodes, versionSourceNodeId)
     : null;
   const counts = calculateCounts(tree);
   const cuts = countNodesByType(tree, "duration");
   const ratios = countNodesByType(tree, "aspect_ratio");
   const rows = useMemo(() => flattenRows(tree.nodes, openIds), [tree, openIds]);
+  const hoveredNodeId = hoveredPathIds[hoveredPathIds.length - 1] ?? null;
   const filteredRows = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) {
@@ -203,14 +207,26 @@ export function TreeEditor({
   }
 
   function openAddVersions(nodeId?: string) {
+    const sourceNode = nodeId ? findNode(tree.nodes, nodeId) : null;
+    const addableTypes = getAddableTypesForNode(sourceNode?.nodeType ?? null);
+
+    if (!addableTypes.length) {
+      setStatus("Output format rows are terminal. Add new forks above this file row.");
+      return;
+    }
+
     if (nodeId) {
       setSelectedNodeId(nodeId);
     }
     setOpenMenuNodeId(null);
-    if (!nodeId && !selectedNodeId) {
-      setVersionsTarget("all");
-    }
-    setSelectedPresetLabels(presetValues[versionsType]);
+    setVersionSourceNodeId(nodeId ?? null);
+    setVersionsTarget(nodeId ? "selected" : "all");
+
+    const nextType = addableTypes.includes(versionsType)
+      ? versionsType
+      : addableTypes[0];
+    setVersionsType(nextType);
+    setSelectedPresetLabels(presetValues[nextType]);
     setCustomVersionLabels("");
     setShowVersionsModal(true);
   }
@@ -233,7 +249,7 @@ export function TreeEditor({
       autoApplyOutputFormats,
       defaultOutputFormats,
       labels: uniqueLabels,
-      selectedNodeId,
+      selectedNodeId: versionsTarget === "selected" ? versionSourceNodeId : null,
       target: versionsTarget,
       type: versionsType,
     });
@@ -353,21 +369,25 @@ export function TreeEditor({
                   {filteredRows.map((row) => (
                     <MatrixRow
                       editingLabel={editingLabel}
-                  editingNodeId={editingNodeId}
-                  highlighted={hoveredPathIds.includes(row.node.id)}
-                  isOpen={openIds.has(row.node.id)}
-                  isSelected={selectedNodeId === row.node.id}
+                      editingNodeId={editingNodeId}
+                      isAncestorContext={
+                        hoveredPathIds.includes(row.node.id) &&
+                        hoveredNodeId !== row.node.id
+                      }
+                      isHovered={hoveredNodeId === row.node.id}
+                      isOpen={openIds.has(row.node.id)}
+                      isSelected={selectedNodeId === row.node.id}
                       key={row.node.id}
                       onCommitEdit={commitInlineEdit}
                       onDelete={() => deleteNode(row.node.id)}
                       onEditLabel={setEditingLabel}
-                  onMenu={() =>
-                    setOpenMenuNodeId((current) =>
-                      current === row.node.id ? null : row.node.id,
-                    )
-                  }
-                  onHoverPath={setHoveredPathIds}
-                  onOpenAddVersions={() => openAddVersions(row.node.id)}
+                      onMenu={() =>
+                        setOpenMenuNodeId((current) =>
+                          current === row.node.id ? null : row.node.id,
+                        )
+                      }
+                      onHoverPath={setHoveredPathIds}
+                      onOpenAddVersions={() => openAddVersions(row.node.id)}
                       onSelect={() => toggleNode(row.node)}
                       onStartEdit={() => {
                         setOpenMenuNodeId(null);
@@ -392,6 +412,7 @@ export function TreeEditor({
               formats={defaultOutputFormats}
               onChange={updateOutputDefaults}
             />
+            <TaxonomyPanel onAddVersions={() => openAddVersions()} />
             <SnapshotPanel
               isPending={isPending}
               onNotes={setSnapshotNotes}
@@ -460,8 +481,11 @@ export function TreeEditor({
             setSelectedPresetLabels(presetValues[type]);
           }}
           presetLabels={selectedPresetLabels}
-          selectedNodeLabel={selectedNode?.label ?? null}
-          selectedNodeType={selectedNode?.nodeType ?? null}
+          addableTypes={getAddableTypesForNode(
+            versionSourceNode?.nodeType ?? null,
+          )}
+          selectedNodeLabel={versionSourceNode?.label ?? null}
+          selectedNodeType={versionSourceNode?.nodeType ?? null}
           target={versionsTarget}
           type={versionsType}
         />
@@ -655,7 +679,8 @@ function MatrixHeader() {
 function MatrixRow({
   editingLabel,
   editingNodeId,
-  highlighted,
+  isAncestorContext,
+  isHovered,
   isOpen,
   isSelected,
   onCommitEdit,
@@ -671,7 +696,8 @@ function MatrixRow({
 }: {
   editingLabel: string;
   editingNodeId: string | null;
-  highlighted: boolean;
+  isAncestorContext: boolean;
+  isHovered: boolean;
   isOpen: boolean;
   isSelected: boolean;
   onCommitEdit: () => void;
@@ -691,7 +717,23 @@ function MatrixRow({
   const hasChildren = Boolean(node.children?.length);
 
   const isEditing = editingNodeId === node.id;
-  const showFilenamePreview = node.nodeType === "output_format" && highlighted;
+  const showFilenamePreview = node.nodeType === "output_format" && isHovered;
+  const rowBackground = isSelected
+    ? "var(--accent-tint)"
+    : isHovered
+      ? "var(--bg-subtle)"
+      : isAncestorContext
+        ? "rgba(214, 235, 126, 0.16)"
+        : node.nodeType === "creative_unit"
+          ? "var(--bg-panel)"
+          : undefined;
+  const rowInset = isSelected
+    ? "inset 3px 0 0 var(--accent)"
+    : isHovered
+      ? "inset 3px 0 0 var(--ink-3)"
+      : isAncestorContext
+        ? "inset 2px 0 0 rgba(154, 178, 55, 0.35)"
+        : undefined;
 
   return (
     <div
@@ -701,14 +743,8 @@ function MatrixRow({
       onMouseLeave={() => onHoverPath([])}
       style={{
         minHeight: "var(--row-h)",
-        background: isSelected
-          ? "var(--accent-tint)"
-          : highlighted
-            ? "var(--accent-tint)"
-          : node.nodeType === "creative_unit"
-            ? "var(--bg-panel)"
-            : undefined,
-        boxShadow: highlighted ? "inset 3px 0 0 var(--accent-soft)" : undefined,
+        background: rowBackground,
+        boxShadow: rowInset,
         fontSize: "var(--row-fs)",
       }}
       role="button"
@@ -966,7 +1002,7 @@ function ProjectDefaultsPanel({
   formats: string[];
   onChange: (formats: string[], autoApply: boolean) => void;
 }) {
-  const baseFormats = ["H264 MP4", "ProRes MOV", "MXF", "WebM"];
+  const baseFormats = ["H264 MP4", "ProRes MOV", "WebM"];
   const [customFormat, setCustomFormat] = useState("");
   const options = Array.from(new Set([...baseFormats, ...formats]));
 
@@ -1035,6 +1071,38 @@ function ProjectDefaultsPanel({
         />
         Auto-populate new aspect ratios with these output formats.
       </label>
+    </section>
+  );
+}
+
+function TaxonomyPanel({ onAddVersions }: { onAddVersions: () => void }) {
+  return (
+    <section className="dt-panel p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold">Fork taxonomy</h2>
+        <span className="dt-eyebrow">Flow</span>
+      </div>
+      <p className="dt-sub mt-2">
+        The current path is Creative Unit / Duration / Aspect Ratio, with
+        optional Platform, Technical Variant, and Output Format forks below it.
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {["Generic", "Localized", "Captioned", "Clean", "Textless"].map(
+          (item) => (
+            <span className="dt-chip" key={item}>
+              {item}
+            </span>
+          ),
+        )}
+      </div>
+      <p className="dt-sub mt-3">
+        Use Technical Variant for now for generics, localization, caption
+        burn-ins, legal, or clean/textless branches. Dedicated fork levels can
+        be added next once the taxonomy settles.
+      </p>
+      <button className="dt-btn mt-4 w-fit" onClick={onAddVersions} type="button">
+        <Plus className="h-3.5 w-3.5" /> Add fork level
+      </button>
     </section>
   );
 }
@@ -1228,6 +1296,7 @@ function Modal({
 }
 
 function AddVersionsModal({
+  addableTypes,
   customLabels,
   onClose,
   onCustomLabels,
@@ -1241,6 +1310,7 @@ function AddVersionsModal({
   target,
   type,
 }: {
+  addableTypes: MatrixNodeType[];
   customLabels: string;
   onClose: () => void;
   onCustomLabels: (labels: string) => void;
@@ -1254,13 +1324,6 @@ function AddVersionsModal({
   target: AddVersionsTarget;
   type: MatrixNodeType;
 }) {
-  const addableTypes: MatrixNodeType[] = [
-    "duration",
-    "aspect_ratio",
-    "platform",
-    "technical_variant",
-    "output_format",
-  ];
   const presets = presetValues[type];
 
   function togglePreset(label: string) {
@@ -1479,6 +1542,44 @@ function slugifyPart(value: string) {
     .replace(/[^a-zA-Z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .toLowerCase();
+}
+
+function getAddableTypesForNode(
+  nodeType: MatrixNodeType | null,
+): MatrixNodeType[] {
+  if (!nodeType) {
+    return [
+      "duration",
+      "aspect_ratio",
+      "platform",
+      "technical_variant",
+      "output_format",
+    ];
+  }
+
+  const flow: MatrixNodeType[] = [
+    "creative_unit",
+    "duration",
+    "aspect_ratio",
+    "platform",
+    "technical_variant",
+    "output_format",
+  ];
+  const index = flow.indexOf(nodeType);
+
+  if (index < 0) {
+    return [];
+  }
+
+  if (nodeType === "aspect_ratio") {
+    return ["platform", "technical_variant", "output_format"];
+  }
+
+  if (nodeType === "platform") {
+    return ["technical_variant", "output_format"];
+  }
+
+  return flow.slice(index + 1).filter((type) => type !== "creative_unit");
 }
 
 function scopeDescription(
