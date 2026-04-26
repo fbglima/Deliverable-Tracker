@@ -12,10 +12,12 @@ import {
   ChevronRight,
   Clock3,
   FileText,
+  GitCompareArrows,
   Languages,
   LayoutGrid,
   ListTree,
   MoreHorizontal,
+  Pencil,
   Monitor,
   Plus,
   Save,
@@ -65,6 +67,28 @@ type VisibleRow = {
   pathText: string;
 };
 
+type SnapshotDiffEntry = {
+  id: string;
+  label: string;
+  nodeType: MatrixNodeType;
+  pathText: string;
+};
+
+type SnapshotChangeEntry = {
+  after: SnapshotDiffEntry;
+  before: SnapshotDiffEntry;
+};
+
+type SnapshotDiff = {
+  added: SnapshotDiffEntry[];
+  afterCounts: ReturnType<typeof calculateCounts>;
+  afterTypeCounts: Record<MatrixNodeType, number>;
+  beforeCounts: ReturnType<typeof calculateCounts>;
+  beforeTypeCounts: Record<MatrixNodeType, number>;
+  changed: SnapshotChangeEntry[];
+  removed: SnapshotDiffEntry[];
+};
+
 const densityVars: Record<Density, CSSProperties> = {
   compact: {
     "--row-h": "30px",
@@ -92,6 +116,12 @@ const forkTypeOrder: MatrixNodeType[] = [
   "platform",
   "localization",
   "technical_variant",
+];
+
+const allNodeTypes: MatrixNodeType[] = [
+  "creative_unit",
+  ...forkTypeOrder,
+  "output_format",
 ];
 
 const taxonomyOptions: Array<{
@@ -164,6 +194,9 @@ export function TreeEditor({
   const [customVersionLabels, setCustomVersionLabels] = useState("");
   const [snapshotName, setSnapshotName] = useState("Current");
   const [snapshotNotes, setSnapshotNotes] = useState("");
+  const [compareSnapshotId, setCompareSnapshotId] = useState<string>(
+    initialSnapshots[0]?.id ?? "",
+  );
   const [status, setStatus] = useState("Unsaved edits stay local until saved.");
   const [isPending, startTransition] = useTransition();
 
@@ -175,6 +208,15 @@ export function TreeEditor({
   const ratios = countNodesByType(tree, "aspect_ratio");
   const rows = useMemo(() => flattenRows(tree.nodes, openIds), [tree, openIds]);
   const hoveredNodeId = hoveredPathIds[hoveredPathIds.length - 1] ?? null;
+  const compareSnapshot =
+    initialSnapshots.find((snapshot) => snapshot.id === compareSnapshotId) ??
+    initialSnapshots[0] ??
+    null;
+  const snapshotDiff = useMemo(
+    () =>
+      compareSnapshot ? compareTrees(compareSnapshot.tree_json, tree) : null,
+    [compareSnapshot, tree],
+  );
   const filteredRows = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) {
@@ -511,6 +553,13 @@ export function TreeEditor({
               snapshotNotes={snapshotNotes}
               snapshots={initialSnapshots}
               status={status}
+            />
+            <SnapshotComparePanel
+              diff={snapshotDiff}
+              onSnapshot={setCompareSnapshotId}
+              selectedSnapshotId={compareSnapshot?.id ?? ""}
+              snapshot={compareSnapshot}
+              snapshots={initialSnapshots}
             />
           </aside>
         </section>
@@ -1456,6 +1505,280 @@ function SnapshotPanel({
   );
 }
 
+function SnapshotComparePanel({
+  diff,
+  onSnapshot,
+  selectedSnapshotId,
+  snapshot,
+  snapshots,
+}: {
+  diff: SnapshotDiff | null;
+  onSnapshot: (snapshotId: string) => void;
+  selectedSnapshotId: string;
+  snapshot: MatrixSnapshot | null;
+  snapshots: MatrixSnapshot[];
+}) {
+  return (
+    <section className="dt-panel p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold">Compare</h2>
+        <GitCompareArrows className="h-4 w-4 text-[var(--ink-3)]" />
+      </div>
+
+      {snapshots.length ? (
+        <>
+          <label className="dt-field mt-4">
+            Snapshot
+            <select
+              className="dt-input"
+              onChange={(event) => onSnapshot(event.target.value)}
+              value={selectedSnapshotId}
+            >
+              {snapshots.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {snapshot ? (
+            <p className="mono mt-2 text-[10.5px] text-[var(--ink-3)]">
+              Comparing {new Date(snapshot.created_at).toLocaleString()} to
+              current unsaved state.
+            </p>
+          ) : null}
+
+          {diff ? (
+            <div className="mt-4 grid gap-4">
+              <div className="grid grid-cols-2 gap-2">
+                <CompareCountCard
+                  after={diff.afterCounts.creativeDeliverables}
+                  before={diff.beforeCounts.creativeDeliverables}
+                  label="Creative"
+                />
+                <CompareCountCard
+                  after={diff.afterCounts.terminalFiles}
+                  before={diff.beforeCounts.terminalFiles}
+                  label="Files"
+                />
+              </div>
+
+              <TypeDeltaGrid
+                afterCounts={diff.afterTypeCounts}
+                beforeCounts={diff.beforeTypeCounts}
+              />
+
+              <DiffList
+                entries={diff.added}
+                icon={<Plus className="h-3.5 w-3.5" />}
+                title="Added"
+                tone="add"
+              />
+              <DiffList
+                entries={diff.removed}
+                icon={<Trash2 className="h-3.5 w-3.5" />}
+                title="Removed"
+                tone="remove"
+              />
+              <ChangedList entries={diff.changed} />
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <p className="dt-sub mt-3">
+          Save a snapshot, then compare it against the current matrix.
+        </p>
+      )}
+    </section>
+  );
+}
+
+function CompareCountCard({
+  after,
+  before,
+  label,
+}: {
+  after: number;
+  before: number;
+  label: string;
+}) {
+  const delta = after - before;
+
+  return (
+    <div className="rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--bg-app)] p-3">
+      <div className="dt-eyebrow">{label}</div>
+      <div className="mt-1 flex items-end justify-between gap-2">
+        <span className="tnum text-xl font-semibold">{after}</span>
+        <span
+          className={`mono text-xs ${
+            delta > 0
+              ? "text-[#547000]"
+              : delta < 0
+                ? "text-[#a33127]"
+                : "text-[var(--ink-4)]"
+          }`}
+        >
+          {formatDelta(delta)}
+        </span>
+      </div>
+      <div className="mono mt-1 text-[10.5px] text-[var(--ink-3)]">
+        was {before}
+      </div>
+    </div>
+  );
+}
+
+function TypeDeltaGrid({
+  afterCounts,
+  beforeCounts,
+}: {
+  afterCounts: Record<MatrixNodeType, number>;
+  beforeCounts: Record<MatrixNodeType, number>;
+}) {
+  return (
+    <div className="rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--bg-app)] p-3">
+      <div className="dt-eyebrow">Branch deltas</div>
+      <div className="mt-2 grid gap-1.5">
+        {allNodeTypes.map((type) => {
+          const before = beforeCounts[type];
+          const after = afterCounts[type];
+          const delta = after - before;
+
+          return (
+            <div
+              className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 text-xs"
+              key={type}
+            >
+              <span className="truncate text-[var(--ink-2)]">
+                {nodeTypeLabels[type]}
+              </span>
+              <span className="mono text-[var(--ink-3)]">
+                {before}
+                {" -> "}
+                {after}
+              </span>
+              <span
+                className={`mono ${
+                  delta > 0
+                    ? "text-[#547000]"
+                    : delta < 0
+                      ? "text-[#a33127]"
+                      : "text-[var(--ink-4)]"
+                }`}
+              >
+                {formatDelta(delta)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function DiffList({
+  entries,
+  icon,
+  title,
+  tone,
+}: {
+  entries: SnapshotDiffEntry[];
+  icon: ReactNode;
+  title: string;
+  tone: "add" | "remove";
+}) {
+  const visibleEntries = entries.slice(0, 6);
+  const extra = entries.length - visibleEntries.length;
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="dt-eyebrow">{title}</span>
+        <span className="dt-chip">{entries.length}</span>
+      </div>
+      {visibleEntries.length ? (
+        <div className="grid gap-1.5">
+          {visibleEntries.map((entry) => (
+            <div
+              className="flex min-w-0 items-start gap-2 rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--bg-app)] px-2 py-1.5 text-xs"
+              key={entry.id}
+            >
+              <span
+                className={
+                  tone === "add"
+                    ? "mt-0.5 text-[#547000]"
+                    : "mt-0.5 text-[#a33127]"
+                }
+              >
+                {icon}
+              </span>
+              <span className="min-w-0">
+                <span className="block font-medium text-[var(--ink-1)]">
+                  {entry.label}
+                </span>
+                <span className="block truncate text-[var(--ink-3)]">
+                  {entry.pathText}
+                </span>
+              </span>
+            </div>
+          ))}
+          {extra > 0 ? (
+            <div className="mono text-[10.5px] text-[var(--ink-3)]">
+              +{extra} more
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <p className="dt-sub">No {title.toLowerCase()} branches.</p>
+      )}
+    </div>
+  );
+}
+
+function ChangedList({ entries }: { entries: SnapshotChangeEntry[] }) {
+  const visibleEntries = entries.slice(0, 6);
+  const extra = entries.length - visibleEntries.length;
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="dt-eyebrow">Changed</span>
+        <span className="dt-chip">{entries.length}</span>
+      </div>
+      {visibleEntries.length ? (
+        <div className="grid gap-1.5">
+          {visibleEntries.map((entry) => (
+            <div
+              className="flex min-w-0 items-start gap-2 rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--bg-app)] px-2 py-1.5 text-xs"
+              key={entry.after.id}
+            >
+              <Pencil className="mt-0.5 h-3.5 w-3.5 text-[var(--ink-3)]" />
+              <span className="min-w-0">
+                <span className="block font-medium text-[var(--ink-1)]">
+                  {entry.before.label}
+                  {" -> "}
+                  {entry.after.label}
+                </span>
+                <span className="block truncate text-[var(--ink-3)]">
+                  {entry.after.pathText}
+                </span>
+              </span>
+            </div>
+          ))}
+          {extra > 0 ? (
+            <div className="mono text-[10.5px] text-[var(--ink-3)]">
+              +{extra} more
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <p className="dt-sub">No renamed branches.</p>
+      )}
+    </div>
+  );
+}
+
 function PivotView({ tree }: { tree: DeliverableTree }) {
   const durations = Array.from(
     new Set(
@@ -1809,6 +2132,99 @@ function countNodesInSubtree(node: DeliverableNode, nodeType: MatrixNodeType) {
   walk(node);
 
   return count;
+}
+
+function compareTrees(
+  beforeTree: DeliverableTree,
+  afterTree: DeliverableTree,
+): SnapshotDiff {
+  const beforeEntries = collectDiffEntries(beforeTree.nodes);
+  const afterEntries = collectDiffEntries(afterTree.nodes);
+  const added: SnapshotDiffEntry[] = [];
+  const removed: SnapshotDiffEntry[] = [];
+  const changed: SnapshotChangeEntry[] = [];
+
+  afterEntries.forEach((afterEntry, id) => {
+    const beforeEntry = beforeEntries.get(id);
+
+    if (!beforeEntry) {
+      added.push(afterEntry);
+      return;
+    }
+
+    if (
+      beforeEntry.label !== afterEntry.label ||
+      beforeEntry.nodeType !== afterEntry.nodeType
+    ) {
+      changed.push({ after: afterEntry, before: beforeEntry });
+    }
+  });
+
+  beforeEntries.forEach((beforeEntry, id) => {
+    if (!afterEntries.has(id)) {
+      removed.push(beforeEntry);
+    }
+  });
+
+  return {
+    added: sortDiffEntries(added),
+    afterCounts: calculateCounts(afterTree),
+    afterTypeCounts: countNodeTypes(afterTree.nodes),
+    beforeCounts: calculateCounts(beforeTree),
+    beforeTypeCounts: countNodeTypes(beforeTree.nodes),
+    changed: changed.sort((first, second) =>
+      first.after.pathText.localeCompare(second.after.pathText),
+    ),
+    removed: sortDiffEntries(removed),
+  };
+}
+
+function collectDiffEntries(nodes: DeliverableNode[]) {
+  const entries = new Map<string, SnapshotDiffEntry>();
+
+  function walk(node: DeliverableNode, path: string[]) {
+    const nextPath = [...path, node.label];
+    entries.set(node.id, {
+      id: node.id,
+      label: node.label,
+      nodeType: node.nodeType,
+      pathText: nextPath.join(" / "),
+    });
+    node.children?.forEach((child) => walk(child, nextPath));
+  }
+
+  nodes.forEach((node) => walk(node, []));
+
+  return entries;
+}
+
+function sortDiffEntries(entries: SnapshotDiffEntry[]) {
+  return entries.sort((first, second) =>
+    first.pathText.localeCompare(second.pathText),
+  );
+}
+
+function countNodeTypes(nodes: DeliverableNode[]) {
+  const counts = Object.fromEntries(
+    allNodeTypes.map((type) => [type, 0]),
+  ) as Record<MatrixNodeType, number>;
+
+  function walk(node: DeliverableNode) {
+    counts[node.nodeType] += 1;
+    node.children?.forEach(walk);
+  }
+
+  nodes.forEach(walk);
+
+  return counts;
+}
+
+function formatDelta(delta: number) {
+  if (delta > 0) {
+    return `+${delta}`;
+  }
+
+  return String(delta);
 }
 
 function suggestFilename({

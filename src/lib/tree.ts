@@ -97,6 +97,13 @@ export function createDefaultTree(): DeliverableTree {
 
 export function calculateCounts(tree: DeliverableTree): MatrixCounts {
   const terminalPaths: DeliverableNode[][] = [];
+  const enabledForkTypes = tree.enabledForkTypes?.length
+    ? tree.enabledForkTypes
+    : defaultEnabledForkTypes;
+  const countableTypes = new Set<MatrixNodeType>([
+    "creative_unit",
+    ...enabledForkTypes.filter((type) => type !== "technical_variant"),
+  ]);
 
   function walk(node: DeliverableNode, path: DeliverableNode[]) {
     const nextPath = [...path, node];
@@ -117,16 +124,13 @@ export function calculateCounts(tree: DeliverableTree): MatrixCounts {
   terminalPaths.forEach((path) => {
     const hasOutput = path.some((node) => node.nodeType === "output_format");
     const creativePath = path.filter(
-      (node) =>
-        node.nodeType !== "output_format" &&
-        node.nodeType !== "technical_variant",
+      (node) => countableTypes.has(node.nodeType),
+    );
+    const hasRequiredTypes = Array.from(countableTypes).every((nodeType) =>
+      creativePath.some((node) => node.nodeType === nodeType),
     );
 
-    if (
-      creativePath.some((node) => node.nodeType === "creative_unit") &&
-      creativePath.some((node) => node.nodeType === "duration") &&
-      creativePath.some((node) => node.nodeType === "aspect_ratio")
-    ) {
+    if (hasRequiredTypes) {
       creativeKeys.add(
         creativePath.map((node) => `${node.nodeType}:${node.label}`).join("|"),
       );

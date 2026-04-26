@@ -38,7 +38,12 @@ export default async function ProjectPage({
     .select("*")
     .eq("id", typedProject.workspace_id)
     .single();
-  const typedSnapshots = (snapshots ?? []) as MatrixSnapshot[];
+  const typedSnapshots = ((snapshots ?? []) as MatrixSnapshot[]).map(
+    (snapshot) => ({
+      ...snapshot,
+      tree_json: normalizeTree(snapshot.tree_json),
+    }),
+  );
   const typedWorkspace = workspace as Workspace | null;
 
   return (
