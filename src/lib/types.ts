@@ -9,6 +9,9 @@ export type MatrixNodeType =
   | "technical_variant"
   | "output_format";
 
+export type FilenameCase = "lower" | "title" | "camel";
+export type FilenameSeparator = "-" | "_";
+
 export type DeliverableNode = {
   id: string;
   nodeType: MatrixNodeType;
@@ -23,6 +26,8 @@ export type DeliverableTree = {
   enabledForkTypes?: MatrixNodeType[];
   defaultOutputFormats?: string[];
   autoApplyOutputFormats?: boolean;
+  filenameCase?: FilenameCase;
+  filenameSeparator?: FilenameSeparator;
   nodes: DeliverableNode[];
 };
 

@@ -38,6 +38,8 @@ import {
 import type {
   DeliverableNode,
   DeliverableTree,
+  FilenameCase,
+  FilenameSeparator,
   MatrixNodeType,
   MatrixSnapshot,
   Project,
@@ -189,6 +191,8 @@ export function TreeEditor({
       ? tree.defaultOutputFormats
       : ["H264 MP4", "ProRes MOV"];
   const autoApplyOutputFormats = tree.autoApplyOutputFormats ?? true;
+  const filenameCase = tree.filenameCase ?? "lower";
+  const filenameSeparator = tree.filenameSeparator ?? "-";
   const enabledForkTypes = getEnabledForkTypes(tree);
 
   function commitTree(nextTree: DeliverableTree) {
@@ -322,6 +326,17 @@ export function TreeEditor({
     });
   }
 
+  function updateFilenameDefaults(
+    nextCase: FilenameCase,
+    nextSeparator: FilenameSeparator,
+  ) {
+    commitTree({
+      ...tree,
+      filenameCase: nextCase,
+      filenameSeparator: nextSeparator,
+    });
+  }
+
   function updateEnabledForkTypes(nextEnabledForkTypes: MatrixNodeType[]) {
     commitTree({
       ...tree,
@@ -436,6 +451,8 @@ export function TreeEditor({
                     <MatrixRow
                       editingLabel={editingLabel}
                       editingNodeId={editingNodeId}
+                      filenameCase={filenameCase}
+                      filenameSeparator={filenameSeparator}
                       isAncestorContext={
                         hoveredPathIds.includes(row.node.id) &&
                         hoveredNodeId !== row.node.id
@@ -460,6 +477,8 @@ export function TreeEditor({
                         startInlineEdit(row.node);
                       }}
                       openMenu={openMenuNodeId === row.node.id}
+                      projectClientName={project.client_name}
+                      projectName={project.name}
                       row={row}
                     />
                   ))}
@@ -476,7 +495,10 @@ export function TreeEditor({
             <ProjectSettingsPanel
               autoApply={autoApplyOutputFormats}
               enabledForkTypes={enabledForkTypes}
+              filenameCase={filenameCase}
+              filenameSeparator={filenameSeparator}
               formats={defaultOutputFormats}
+              onFilenameChange={updateFilenameDefaults}
               onForkTypesChange={updateEnabledForkTypes}
               onOutputChange={updateOutputDefaults}
             />
@@ -748,6 +770,8 @@ function MatrixHeader() {
 function MatrixRow({
   editingLabel,
   editingNodeId,
+  filenameCase,
+  filenameSeparator,
   isAncestorContext,
   isHovered,
   isOpen,
@@ -761,10 +785,14 @@ function MatrixRow({
   onSelect,
   onStartEdit,
   openMenu,
+  projectClientName,
+  projectName,
   row,
 }: {
   editingLabel: string;
   editingNodeId: string | null;
+  filenameCase: FilenameCase;
+  filenameSeparator: FilenameSeparator;
   isAncestorContext: boolean;
   isHovered: boolean;
   isOpen: boolean;
@@ -778,6 +806,8 @@ function MatrixRow({
   onSelect: () => void;
   onStartEdit: () => void;
   openMenu: boolean;
+  projectClientName: string | null;
+  projectName: string;
   row: VisibleRow;
 }) {
   const { node } = row;
@@ -786,7 +816,16 @@ function MatrixRow({
   const hasChildren = Boolean(node.children?.length);
 
   const isEditing = editingNodeId === node.id;
-  const showFilenamePreview = node.nodeType === "output_format" && isHovered;
+  const filenameSuggestion =
+    node.nodeType === "output_format"
+      ? suggestFilename({
+          caseStyle: filenameCase,
+          clientName: projectClientName,
+          pathLabels: row.pathLabels,
+          projectName,
+          separator: filenameSeparator,
+        })
+      : null;
   const rowBackground = isSelected
     ? "var(--accent-tint)"
     : isHovered
@@ -878,6 +917,15 @@ function MatrixRow({
             >
               {node.label}
             </button>
+            {filenameSuggestion ? (
+              <span
+                className={`mono ml-2 min-w-0 truncate rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--bg-app)] px-2 py-0.5 text-[length:var(--row-meta-fs)] text-[var(--ink-3)] ${
+                  isHovered || isSelected ? "inline-block" : "hidden group-hover:inline-block"
+                }`}
+              >
+                {filenameSuggestion}
+              </span>
+            ) : null}
             {node.nodeType !== "output_format" ? (
               <button
                 className="ml-2 hidden shrink-0 rounded-full border border-[var(--line)] bg-[var(--bg-panel)] px-2 py-0.5 text-[11px] font-medium text-[var(--accent-ink)] shadow-[var(--shadow-card)] hover:border-[var(--accent-soft)] group-hover:inline-flex"
@@ -950,12 +998,6 @@ function MatrixRow({
           >
             <Trash2 className="h-3.5 w-3.5" /> Delete row
           </button>
-        </div>
-      ) : null}
-      {showFilenamePreview ? (
-        <div className="pointer-events-none absolute left-10 top-[calc(100%-4px)] z-10 max-w-[760px] rounded-[var(--r-md)] bg-[var(--ink-1)] px-3 py-2 text-[11.5px] text-white shadow-[var(--shadow-pop)] mono">
-          <span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
-          {suggestFilename(row.pathLabels)}
         </div>
       ) : null}
     </div>
@@ -1117,13 +1159,22 @@ function FanBadge({
 function ProjectSettingsPanel({
   autoApply,
   enabledForkTypes,
+  filenameCase,
+  filenameSeparator,
   formats,
+  onFilenameChange,
   onForkTypesChange,
   onOutputChange,
 }: {
   autoApply: boolean;
   enabledForkTypes: MatrixNodeType[];
+  filenameCase: FilenameCase;
+  filenameSeparator: FilenameSeparator;
   formats: string[];
+  onFilenameChange: (
+    caseStyle: FilenameCase,
+    separator: FilenameSeparator,
+  ) => void;
   onForkTypesChange: (forkTypes: MatrixNodeType[]) => void;
   onOutputChange: (formats: string[], autoApply: boolean) => void;
 }) {
@@ -1225,6 +1276,65 @@ function ProjectSettingsPanel({
             />
             Auto-populate new taxonomy branches with these output formats.
           </label>
+
+          <div className="mt-5 border-t border-[var(--line)] pt-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold">Filename style</h3>
+                <p className="dt-sub mt-1">
+                  Suggested names start with client and project, then follow the
+                  row path.
+                </p>
+              </div>
+            </div>
+            <div className="mt-3 grid gap-3">
+              <label className="dt-field">
+                Separator
+                <select
+                  className="dt-input"
+                  onChange={(event) =>
+                    onFilenameChange(
+                      filenameCase,
+                      event.target.value as FilenameSeparator,
+                    )
+                  }
+                  value={filenameSeparator}
+                >
+                  <option value="-">Hyphen: client-project-name</option>
+                  <option value="_">Underscore: client_project_name</option>
+                </select>
+              </label>
+              <label className="dt-field">
+                Case
+                <select
+                  className="dt-input"
+                  onChange={(event) =>
+                    onFilenameChange(
+                      event.target.value as FilenameCase,
+                      filenameSeparator,
+                    )
+                  }
+                  value={filenameCase}
+                >
+                  <option value="lower">lowercase</option>
+                  <option value="title">Title Case</option>
+                  <option value="camel">CamelCase</option>
+                </select>
+              </label>
+              <div className="rounded-[var(--r-sm)] border border-dashed border-[var(--line-strong)] bg-[var(--bg-subtle)] px-3 py-2">
+                <div className="dt-eyebrow">Preview</div>
+                <div className="mono mt-1 truncate text-xs text-[var(--ink-2)]">
+                  {formatFilenameParts(
+                    ["Client", "Project Name", "Creative Unit 01", ":30", "16x9"],
+                    {
+                      caseStyle: filenameCase,
+                      separator: filenameSeparator,
+                    },
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         </>
       ) : (
         <div className="mt-4 grid gap-3">
@@ -1701,17 +1811,59 @@ function countNodesInSubtree(node: DeliverableNode, nodeType: MatrixNodeType) {
   return count;
 }
 
-function suggestFilename(pathLabels: string[]) {
-  return `${pathLabels.map(slugifyPart).join("_")}_v001`;
+function suggestFilename({
+  caseStyle,
+  clientName,
+  pathLabels,
+  projectName,
+  separator,
+}: {
+  caseStyle: FilenameCase;
+  clientName: string | null;
+  pathLabels: string[];
+  projectName: string;
+  separator: FilenameSeparator;
+}) {
+  return formatFilenameParts(
+    [clientName, projectName, ...pathLabels].filter(Boolean) as string[],
+    { caseStyle, separator },
+  );
 }
 
-function slugifyPart(value: string) {
+function formatFilenameParts(
+  parts: string[],
+  options: {
+    caseStyle: FilenameCase;
+    separator: FilenameSeparator;
+  },
+) {
+  const words = parts.flatMap(splitFilenameWords);
+
+  if (options.caseStyle === "camel") {
+    return words.map(toPascalWord).join("");
+  }
+
+  const formattedWords =
+    options.caseStyle === "title"
+      ? words.map(toPascalWord)
+      : words.map((word) => word.toLowerCase());
+
+  return formattedWords.join(options.separator);
+}
+
+function splitFilenameWords(value: string) {
   return value
     .trim()
     .replace(/^:/, "")
-    .replace(/[^a-zA-Z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .toLowerCase();
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[^a-zA-Z0-9]+/)
+    .filter(Boolean);
+}
+
+function toPascalWord(value: string) {
+  const lower = value.toLowerCase();
+
+  return `${lower.slice(0, 1).toUpperCase()}${lower.slice(1)}`;
 }
 
 function getEnabledForkTypes(tree: DeliverableTree) {

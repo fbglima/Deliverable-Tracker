@@ -80,6 +80,8 @@ export function createDefaultTree(): DeliverableTree {
     enabledForkTypes: defaultEnabledForkTypes,
     defaultOutputFormats: ["H264 MP4", "ProRes MOV"],
     autoApplyOutputFormats: true,
+    filenameCase: "lower",
+    filenameSeparator: "-",
     nodes: [
       createNode("creative_unit", "Creative Unit 01", [
         createNode("duration", ":30", [
