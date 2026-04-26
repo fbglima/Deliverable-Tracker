@@ -10,11 +10,14 @@ import {
 import { useRouter } from "next/navigation";
 import {
   ChevronRight,
+  LayoutGrid,
+  ListTree,
   MoreHorizontal,
   Plus,
   Save,
   Search,
   Sparkles,
+  Table2,
   Trash2,
 } from "lucide-react";
 import { saveSnapshot, updateProjectTree } from "@/app/actions";
@@ -42,6 +45,7 @@ type TreeEditorProps = {
 
 type Density = "compact" | "comfortable" | "roomy";
 type AddVersionsTarget = "selected" | "all";
+type ViewMode = "rows" | "pivot" | "tree";
 
 type VisibleRow = {
   node: DeliverableNode;
@@ -86,6 +90,7 @@ export function TreeEditor({
     tree.nodes[0]?.id ?? null,
   );
   const [density, setDensity] = useState<Density>("comfortable");
+  const [viewMode, setViewMode] = useState<ViewMode>("rows");
   const [search, setSearch] = useState("");
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [editingLabel, setEditingLabel] = useState("");
@@ -221,15 +226,11 @@ export function TreeEditor({
       return;
     }
 
-    const selectedCreativeId = selectedNodeId
-      ? findAncestorId(tree.nodes, selectedNodeId, "creative_unit")
-      : null;
-
     const nextNodes = addVersionNodes(tree.nodes, {
       autoApplyOutputFormats,
       defaultOutputFormats,
       labels: uniqueLabels,
-      selectedCreativeId,
+      selectedNodeId,
       target: versionsTarget,
       type: versionsType,
     });
@@ -310,7 +311,9 @@ export function TreeEditor({
         onSave={saveTree}
         onSearch={setSearch}
         onSnapshot={createSnapshot}
+        onView={setViewMode}
         search={search}
+        view={viewMode}
       />
 
       <main className="dt-canvas">
@@ -340,34 +343,42 @@ export function TreeEditor({
                 </button>
               </div>
             </div>
-            <MatrixHeader />
-            <div>
-              {filteredRows.map((row) => (
-                <MatrixRow
-                  editingLabel={editingLabel}
-                  editingNodeId={editingNodeId}
-                  isOpen={openIds.has(row.node.id)}
-                  isSelected={selectedNodeId === row.node.id}
-                  key={row.node.id}
-                  onCommitEdit={commitInlineEdit}
-                  onDelete={() => deleteNode(row.node.id)}
-                  onEditLabel={setEditingLabel}
-                  onMenu={() =>
-                    setOpenMenuNodeId((current) =>
-                      current === row.node.id ? null : row.node.id,
-                    )
-                  }
-                  onOpenAddVersions={() => openAddVersions(row.node.id)}
-                  onSelect={() => toggleNode(row.node)}
-                  onStartEdit={() => {
-                    setOpenMenuNodeId(null);
-                    startInlineEdit(row.node);
-                  }}
-                  openMenu={openMenuNodeId === row.node.id}
-                  row={row}
-                />
-              ))}
-            </div>
+            {viewMode === "rows" ? (
+              <>
+                <MatrixHeader />
+                <div>
+                  {filteredRows.map((row) => (
+                    <MatrixRow
+                      editingLabel={editingLabel}
+                      editingNodeId={editingNodeId}
+                      isOpen={openIds.has(row.node.id)}
+                      isSelected={selectedNodeId === row.node.id}
+                      key={row.node.id}
+                      onCommitEdit={commitInlineEdit}
+                      onDelete={() => deleteNode(row.node.id)}
+                      onEditLabel={setEditingLabel}
+                      onMenu={() =>
+                        setOpenMenuNodeId((current) =>
+                          current === row.node.id ? null : row.node.id,
+                        )
+                      }
+                      onOpenAddVersions={() => openAddVersions(row.node.id)}
+                      onSelect={() => toggleNode(row.node)}
+                      onStartEdit={() => {
+                        setOpenMenuNodeId(null);
+                        startInlineEdit(row.node);
+                      }}
+                      openMenu={openMenuNodeId === row.node.id}
+                      row={row}
+                    />
+                  ))}
+                </div>
+              </>
+            ) : viewMode === "pivot" ? (
+              <PivotView tree={tree} />
+            ) : (
+              <TreeOutlineView nodes={tree.nodes} />
+            )}
           </div>
 
           <aside className="grid content-start gap-4">
@@ -396,7 +407,10 @@ export function TreeEditor({
           title="Add creative unit"
         >
           <p className="dt-sub">
-            Give this unit a working name. You can rename it inline later.
+            A Creative Unit is a top-level piece of creative: a script, spot,
+            vignette, product story, market, message, scene, loop, or other
+            producer-defined grouping. Give it a working name now; you can
+            rename it inline later.
           </p>
           <label className="dt-field mt-4">
             Creative unit name
@@ -441,11 +455,8 @@ export function TreeEditor({
             setSelectedPresetLabels(presetValues[type]);
           }}
           presetLabels={selectedPresetLabels}
-          selectedCreativeName={
-            selectedNode
-              ? findAncestorLabel(tree.nodes, selectedNode.id, "creative_unit")
-              : null
-          }
+          selectedNodeLabel={selectedNode?.label ?? null}
+          selectedNodeType={selectedNode?.nodeType ?? null}
           target={versionsTarget}
           type={versionsType}
         />
@@ -535,7 +546,9 @@ function Toolbar({
   onSave,
   onSearch,
   onSnapshot,
+  onView,
   search,
+  view,
 }: {
   density: Density;
   disabled: boolean;
@@ -543,10 +556,36 @@ function Toolbar({
   onSave: () => void;
   onSearch: (search: string) => void;
   onSnapshot: () => void;
+  onView: (view: ViewMode) => void;
   search: string;
+  view: ViewMode;
 }) {
   return (
     <div className="dt-toolbar">
+      <div className="dt-segment">
+        <button
+          className={view === "rows" ? "is-active" : ""}
+          onClick={() => onView("rows")}
+          type="button"
+        >
+          <Table2 className="h-3.5 w-3.5" /> Rows
+        </button>
+        <button
+          className={view === "pivot" ? "is-active" : ""}
+          onClick={() => onView("pivot")}
+          type="button"
+        >
+          <LayoutGrid className="h-3.5 w-3.5" /> Pivot
+        </button>
+        <button
+          className={view === "tree" ? "is-active" : ""}
+          onClick={() => onView("tree")}
+          type="button"
+        >
+          <ListTree className="h-3.5 w-3.5" /> Tree
+        </button>
+      </div>
+
       <div className="dt-segment" title="Density">
         {(["compact", "comfortable", "roomy"] as Density[]).map((item) => (
           <button
@@ -740,6 +779,16 @@ function MatrixRow({
       </div>
       <div className="flex justify-end text-[var(--ink-4)] opacity-0 transition group-hover:opacity-100">
         <button
+          className="mr-1 rounded-[var(--r-sm)] px-2 py-1 text-[11px] font-medium text-[var(--accent-ink)] hover:bg-[var(--bg-panel)]"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenAddVersions();
+          }}
+          type="button"
+        >
+          +
+        </button>
+        <button
           className="rounded-[var(--r-sm)] p-1 hover:bg-[var(--bg-panel)] hover:text-[var(--ink-1)]"
           onClick={(event) => {
             event.stopPropagation();
@@ -892,14 +941,24 @@ function ProjectDefaultsPanel({
   formats: string[];
   onChange: (formats: string[], autoApply: boolean) => void;
 }) {
-  const [draftFormats, setDraftFormats] = useState(formats.join("\n"));
+  const baseFormats = ["H264 MP4", "ProRes MOV", "MXF", "WebM"];
+  const [customFormat, setCustomFormat] = useState("");
+  const options = Array.from(new Set([...baseFormats, ...formats]));
 
-  function saveDefaults(nextAutoApply = autoApply) {
-    const nextFormats = draftFormats
-      .split(/\n|,/)
-      .map((format) => format.trim())
-      .filter(Boolean);
-    onChange(nextFormats.length ? nextFormats : ["H264 MP4", "ProRes MOV"], nextAutoApply);
+  function toggleFormat(format: string) {
+    const nextFormats = formats.includes(format)
+      ? formats.filter((item) => item !== format)
+      : [...formats, format];
+    onChange(nextFormats.length ? nextFormats : ["H264 MP4"], autoApply);
+  }
+
+  function addCustomFormat() {
+    const nextFormat = customFormat.trim();
+    if (!nextFormat) {
+      return;
+    }
+    onChange(Array.from(new Set([...formats, nextFormat])), autoApply);
+    setCustomFormat("");
   }
 
   return (
@@ -911,27 +970,46 @@ function ProjectDefaultsPanel({
       <p className="dt-sub mt-2">
         These formats populate new aspect-ratio branches when auto-populate is on.
       </p>
-      <label className="dt-field mt-4">
-        Terminal output formats
-        <textarea
-          className="dt-input min-h-24 mono"
-          onBlur={() => saveDefaults()}
-          onChange={(event) => setDraftFormats(event.target.value)}
-          value={draftFormats}
+      <div className="mt-4 grid gap-2">
+        {options.map((format) => (
+          <label
+            className="flex items-center gap-2 rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--bg-app)] px-2 py-1.5 text-sm text-[var(--ink-2)]"
+            key={format}
+          >
+            <input
+              checked={formats.includes(format)}
+              onChange={() => toggleFormat(format)}
+              type="checkbox"
+            />
+            <span className="mono">{format}</span>
+          </label>
+        ))}
+      </div>
+      <div className="mt-3 flex gap-2">
+        <input
+          className="dt-input min-w-0 flex-1"
+          onChange={(event) => setCustomFormat(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              addCustomFormat();
+            }
+          }}
+          placeholder="Custom format"
+          value={customFormat}
         />
-      </label>
+        <button className="dt-btn" onClick={addCustomFormat} type="button">
+          Add
+        </button>
+      </div>
       <label className="mt-3 flex items-start gap-2 text-sm text-[var(--ink-2)]">
         <input
           checked={autoApply}
           className="mt-1"
-          onChange={(event) => saveDefaults(event.target.checked)}
+          onChange={(event) => onChange(formats, event.target.checked)}
           type="checkbox"
         />
         Auto-populate new aspect ratios with these output formats.
       </label>
-      <button className="dt-btn mt-4" onClick={() => saveDefaults()} type="button">
-        Save defaults
-      </button>
     </section>
   );
 }
@@ -1007,6 +1085,95 @@ function SnapshotPanel({
   );
 }
 
+function PivotView({ tree }: { tree: DeliverableTree }) {
+  const durations = Array.from(
+    new Set(
+      flattenAllNodes(tree.nodes)
+        .filter((node) => node.nodeType === "duration")
+        .map((node) => node.label),
+    ),
+  );
+
+  return (
+    <div className="overflow-auto p-4">
+      <table className="w-full min-w-[720px] border-collapse text-sm">
+        <thead>
+          <tr className="mono text-left text-[10px] uppercase tracking-[0.12em] text-[var(--ink-3)]">
+            <th className="border-b border-[var(--line)] px-3 py-2">Creative Unit</th>
+            {durations.map((duration) => (
+              <th className="border-b border-[var(--line)] px-3 py-2 text-center" key={duration}>
+                {duration}
+              </th>
+            ))}
+            <th className="border-b border-[var(--line)] px-3 py-2 text-right">
+              Files
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {tree.nodes.map((unit) => (
+            <tr key={unit.id} className="border-b border-[var(--line-faint)]">
+              <td className="px-3 py-3 font-semibold">{unit.label}</td>
+              {durations.map((duration) => {
+                const cut = unit.children?.find(
+                  (child) =>
+                    child.nodeType === "duration" && child.label === duration,
+                );
+                return (
+                  <td className="px-3 py-3 text-center" key={duration}>
+                    {cut ? (
+                      <span className="dt-chip">
+                        {countNodesInSubtree(cut, "aspect_ratio")} ratios ·{" "}
+                        {countTerminalsForNode(cut)} files
+                      </span>
+                    ) : (
+                      <span className="text-[var(--ink-4)]">—</span>
+                    )}
+                  </td>
+                );
+              })}
+              <td className="mono px-3 py-3 text-right font-semibold">
+                {countTerminalsForNode(unit)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TreeOutlineView({ nodes }: { nodes: DeliverableNode[] }) {
+  return (
+    <div className="grid gap-3 p-4">
+      {nodes.map((node) => (
+        <TreeOutlineNode key={node.id} node={node} />
+      ))}
+    </div>
+  );
+}
+
+function TreeOutlineNode({ node }: { node: DeliverableNode }) {
+  return (
+    <div className="rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--bg-app)] p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <span className="dt-eyebrow">{nodeTypeLabels[node.nodeType]}</span>
+          <p className="mt-1 font-semibold">{node.label}</p>
+        </div>
+        <span className="dt-chip">{countTerminalsForNode(node)} files</span>
+      </div>
+      {node.children?.length ? (
+        <div className="mt-3 grid gap-2 border-l border-dashed border-[var(--line-strong)] pl-3">
+          {node.children.map((child) => (
+            <TreeOutlineNode key={child.id} node={child} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function Modal({
   children,
   onClose,
@@ -1044,7 +1211,8 @@ function AddVersionsModal({
   onTarget,
   onType,
   presetLabels,
-  selectedCreativeName,
+  selectedNodeLabel,
+  selectedNodeType,
   target,
   type,
 }: {
@@ -1056,7 +1224,8 @@ function AddVersionsModal({
   onTarget: (target: AddVersionsTarget) => void;
   onType: (type: MatrixNodeType) => void;
   presetLabels: string[];
-  selectedCreativeName: string | null;
+  selectedNodeLabel: string | null;
+  selectedNodeType: MatrixNodeType | null;
   target: AddVersionsTarget;
   type: MatrixNodeType;
 }) {
@@ -1130,13 +1299,18 @@ function AddVersionsModal({
             <label className="flex items-center gap-2 text-sm text-[var(--ink-2)]">
               <input
                 checked={target === "selected"}
-                disabled={!selectedCreativeName}
+                disabled={!selectedNodeLabel}
                 onChange={() => onTarget("selected")}
                 type="radio"
               />
-              Selected creative unit
-              {selectedCreativeName ? (
-                <span className="dt-chip">{selectedCreativeName}</span>
+              Selected branch
+              {selectedNodeLabel && selectedNodeType ? (
+                <>
+                  <span className="dt-chip">{selectedNodeLabel}</span>
+                  <span className="text-[var(--ink-4)]">
+                    {scopeDescription(selectedNodeType, type)}
+                  </span>
+                </>
               ) : (
                 <span className="text-[var(--ink-4)]">select a row first</span>
               )}
@@ -1147,7 +1321,7 @@ function AddVersionsModal({
                 onChange={() => onTarget("all")}
                 type="radio"
               />
-              All creative units
+              All matching branches in project
             </label>
           </div>
         </div>
@@ -1227,22 +1401,62 @@ function collectOpenIdsForType(
   });
 }
 
+function flattenAllNodes(nodes: DeliverableNode[]) {
+  const allNodes: DeliverableNode[] = [];
+
+  function walk(node: DeliverableNode) {
+    allNodes.push(node);
+    node.children?.forEach(walk);
+  }
+
+  nodes.forEach(walk);
+
+  return allNodes;
+}
+
+function countNodesInSubtree(node: DeliverableNode, nodeType: MatrixNodeType) {
+  let count = 0;
+
+  function walk(current: DeliverableNode) {
+    if (current.nodeType === nodeType) {
+      count += 1;
+    }
+    current.children?.forEach(walk);
+  }
+
+  walk(node);
+
+  return count;
+}
+
+function scopeDescription(
+  selectedNodeType: MatrixNodeType,
+  versionType: MatrixNodeType,
+) {
+  if (canAddVersionToParent(selectedNodeType, versionType)) {
+    return `adds under this ${nodeTypeLabels[selectedNodeType]}`;
+  }
+
+  return `adds to matching branches inside this ${nodeTypeLabels[selectedNodeType]}`;
+}
+
 function addVersionNodes(
   nodes: DeliverableNode[],
   options: {
     autoApplyOutputFormats: boolean;
     defaultOutputFormats: string[];
     labels: string[];
-    selectedCreativeId: string | null;
+    selectedNodeId: string | null;
     target: AddVersionsTarget;
     type: MatrixNodeType;
   },
 ): DeliverableNode[] {
-  return nodes.map((node) => {
+  function walk(node: DeliverableNode, insideSelectedBranch: boolean): DeliverableNode {
+    const nextInsideSelectedBranch =
+      insideSelectedBranch || node.id === options.selectedNodeId;
     const inScope =
       options.target === "all" ||
-      node.id === options.selectedCreativeId ||
-      containsNode(node.children ?? [], options.selectedCreativeId);
+      (options.selectedNodeId ? nextInsideSelectedBranch : false);
     const shouldAddHere = inScope && canAddVersionToParent(node.nodeType, options.type);
     const existingChildren = node.children ?? [];
     const addedChildren = shouldAddHere
@@ -1266,13 +1480,13 @@ function addVersionNodes(
     return {
       ...node,
       children: [
-        ...existingChildren.map((child) =>
-          addVersionNodes([child], options)[0],
-        ),
+        ...existingChildren.map((child) => walk(child, nextInsideSelectedBranch)),
         ...addedChildren,
       ],
     };
-  });
+  }
+
+  return nodes.map((node) => walk(node, false));
 }
 
 function createVersionNode(
@@ -1316,61 +1530,6 @@ function canAddVersionToParent(
   }
 
   return false;
-}
-
-function containsNode(nodes: DeliverableNode[], nodeId: string | null): boolean {
-  if (!nodeId) {
-    return false;
-  }
-
-  return nodes.some(
-    (node) => node.id === nodeId || containsNode(node.children ?? [], nodeId),
-  );
-}
-
-function findAncestorId(
-  nodes: DeliverableNode[],
-  nodeId: string,
-  ancestorType: MatrixNodeType,
-) {
-  const result = findAncestor(nodes, nodeId, ancestorType);
-  return result?.id ?? null;
-}
-
-function findAncestorLabel(
-  nodes: DeliverableNode[],
-  nodeId: string,
-  ancestorType: MatrixNodeType,
-) {
-  const result = findAncestor(nodes, nodeId, ancestorType);
-  return result?.label ?? null;
-}
-
-function findAncestor(
-  nodes: DeliverableNode[],
-  nodeId: string,
-  ancestorType: MatrixNodeType,
-  ancestors: DeliverableNode[] = [],
-): DeliverableNode | null {
-  for (const node of nodes) {
-    if (node.id === nodeId) {
-      return [...ancestors, node]
-        .reverse()
-        .find((ancestor) => ancestor.nodeType === ancestorType) ?? null;
-    }
-
-    const result = findAncestor(
-      node.children ?? [],
-      nodeId,
-      ancestorType,
-      [...ancestors, node],
-    );
-    if (result) {
-      return result;
-    }
-  }
-
-  return null;
 }
 
 function findNode(nodes: DeliverableNode[], nodeId: string): DeliverableNode | null {
