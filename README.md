@@ -21,4 +21,4 @@ npm install
 npm run dev
 ```
 
-The MVP currently includes auth, workspace/project creation, editable JSON deliverables trees, count calculations, manual snapshots, snapshot comparison, and text/Markdown/CSV exports. AI intake, billing, Google exports, client accounts, viewer roles, and file delivery tracking are intentionally not included.
+The MVP currently includes auth, workspace/project creation, editable JSON deliverables trees, count calculations, manual snapshots, snapshot comparison, and text/CSV exports. AI intake, billing, Google exports, client accounts, viewer roles, and file delivery tracking are intentionally not included.

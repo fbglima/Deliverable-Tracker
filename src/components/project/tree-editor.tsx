@@ -56,7 +56,7 @@ type TreeEditorProps = {
 
 type Density = "compact" | "comfortable" | "roomy";
 type AddVersionsTarget = "selected" | "all";
-type ExportFormat = "txt" | "md" | "csv";
+type ExportFormat = "csv";
 type ViewMode = "rows" | "pivot" | "tree";
 
 type VisibleRow = {
@@ -1553,34 +1553,38 @@ function ExportPanel({
   project: Project;
   tree: DeliverableTree;
 }) {
+  const [showTextExport, setShowTextExport] = useState(false);
+  const [copyStatus, setCopyStatus] = useState("Copy all");
   const counts = calculateCounts(tree);
   const exportPaths = collectExportPaths(tree, project, {
     caseStyle: filenameCase,
     includeTechnical,
     separator: filenameSeparator,
   });
+  const textExport = buildTextTreeExport({
+    counts,
+    includeTechnical,
+    project,
+    tree,
+  });
+
+  async function copyTextExport() {
+    await navigator.clipboard.writeText(textExport);
+    setCopyStatus("Copied");
+    window.setTimeout(() => setCopyStatus("Copy all"), 1200);
+  }
 
   function exportMatrix(format: ExportFormat) {
     const content = buildExportContent({
-      counts,
       format,
-      includeTechnical,
       paths: exportPaths,
-      project,
-      tree,
     });
     const baseName = formatFilenameParts(
       [project.client_name, project.name, "deliverables"].filter(Boolean) as string[],
       { caseStyle: filenameCase, separator: filenameSeparator },
     );
-    const mimeType =
-      format === "csv"
-        ? "text/csv;charset=utf-8"
-        : format === "md"
-          ? "text/markdown;charset=utf-8"
-          : "text/plain;charset=utf-8";
 
-    downloadTextFile(content, `${baseName}.${format}`, mimeType);
+    downloadTextFile(content, `${baseName}.${format}`, "text/csv;charset=utf-8");
   }
 
   return (
@@ -1601,12 +1605,9 @@ function ExportPanel({
         />
         Include technical variants in client-facing paths.
       </label>
-      <div className="mt-4 grid grid-cols-3 gap-2">
-        <button className="dt-btn justify-center" onClick={() => exportMatrix("txt")} type="button">
-          TXT
-        </button>
-        <button className="dt-btn justify-center" onClick={() => exportMatrix("md")} type="button">
-          MD
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <button className="dt-btn justify-center" onClick={() => setShowTextExport(true)} type="button">
+          Text
         </button>
         <button className="dt-btn justify-center" onClick={() => exportMatrix("csv")} type="button">
           CSV
@@ -1615,6 +1616,29 @@ function ExportPanel({
       <div className="mono mt-3 text-[10.5px] text-[var(--ink-3)]">
         {exportPaths.length} terminal rows ready
       </div>
+      {showTextExport ? (
+        <Modal onClose={() => setShowTextExport(false)} title="Plain text export">
+          <div className="grid gap-3">
+            <textarea
+              className="dt-input mono min-h-[420px] resize-y whitespace-pre text-[12px] leading-relaxed"
+              readOnly
+              value={textExport}
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                className="dt-btn"
+                onClick={() => setShowTextExport(false)}
+                type="button"
+              >
+                Close
+              </button>
+              <button className="dt-btn primary" onClick={copyTextExport} type="button">
+                {copyStatus}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
     </section>
   );
 }
@@ -2446,95 +2470,107 @@ function collectExportPaths(
 }
 
 function buildExportContent({
-  counts,
   format,
-  includeTechnical,
   paths,
-  project,
-  tree,
 }: {
-  counts: ReturnType<typeof calculateCounts>;
   format: ExportFormat;
-  includeTechnical: boolean;
   paths: ExportPath[];
-  project: Project;
-  tree: DeliverableTree;
 }) {
   if (format === "csv") {
     return buildCsvExport(paths);
   }
 
-  if (format === "md") {
-    return buildMarkdownExport({ counts, includeTechnical, paths, project, tree });
-  }
-
-  return buildTextExport({ counts, includeTechnical, paths, project, tree });
+  return "";
 }
 
-function buildTextExport({
+function buildTextTreeExport({
   counts,
   includeTechnical,
-  paths,
   project,
   tree,
 }: {
   counts: ReturnType<typeof calculateCounts>;
   includeTechnical: boolean;
-  paths: ExportPath[];
-  project: Project;
-  tree: DeliverableTree;
-}) {
-  const lines = [
-    project.client_name ? `${project.client_name} - ${project.name}` : project.name,
-    "",
-    `Creative deliverables: ${counts.creativeDeliverables}`,
-    `Terminal files: ${counts.terminalFiles}`,
-    `Technical variants: ${includeTechnical ? "included" : "hidden"}`,
-    `Taxonomy: ${getTaxonomyFlow(getEnabledForkTypes(tree))
-      .map((type) => nodeTypeLabels[type])
-      .join(" / ")}`,
-    "",
-    "Deliverables",
-    ...paths.map((path) => `- ${path.pathText} | ${path.filename}`),
-  ];
-
-  return lines.join("\n");
-}
-
-function buildMarkdownExport({
-  counts,
-  includeTechnical,
-  paths,
-  project,
-  tree,
-}: {
-  counts: ReturnType<typeof calculateCounts>;
-  includeTechnical: boolean;
-  paths: ExportPath[];
   project: Project;
   tree: DeliverableTree;
 }) {
   const title = project.client_name
     ? `${project.client_name} - ${project.name}`
     : project.name;
+  const treeLines = renderExportTree(tree.nodes, includeTechnical);
   const lines = [
-    `# ${title}`,
+    title,
     "",
-    `- Creative deliverables: ${counts.creativeDeliverables}`,
-    `- Terminal files: ${counts.terminalFiles}`,
-    `- Technical variants: ${includeTechnical ? "included" : "hidden"}`,
-    `- Taxonomy: ${getTaxonomyFlow(getEnabledForkTypes(tree))
-      .map((type) => nodeTypeLabels[type])
-      .join(" / ")}`,
+    `Creative deliverables: ${counts.creativeDeliverables}`,
+    `Terminal files: ${counts.terminalFiles}`,
+    `Technical variants: ${includeTechnical ? "included" : "hidden"}`,
     "",
-    "## Deliverables",
-    "",
-    "| Path | Suggested filename |",
-    "| --- | --- |",
-    ...paths.map((path) => `| ${escapeMarkdownCell(path.pathText)} | \`${path.filename}\` |`),
+    ...treeLines,
   ];
 
   return lines.join("\n");
+}
+
+function renderExportTree(nodes: DeliverableNode[], includeTechnical: boolean) {
+  const visibleNodes = nodes.flatMap((node) =>
+    getVisibleExportNodes(node, includeTechnical),
+  );
+
+  return visibleNodes.flatMap((node, index) =>
+    renderExportNode({
+      includeTechnical,
+      isLast: index === visibleNodes.length - 1,
+      isRoot: true,
+      node,
+      prefix: "",
+    }),
+  );
+}
+
+function renderExportNode({
+  includeTechnical,
+  isLast,
+  isRoot,
+  node,
+  prefix,
+}: {
+  includeTechnical: boolean;
+  isLast: boolean;
+  isRoot: boolean;
+  node: DeliverableNode;
+  prefix: string;
+}): string[] {
+  const children = (node.children ?? []).flatMap((child) =>
+    getVisibleExportNodes(child, includeTechnical),
+  );
+  const line = isRoot ? node.label : `${prefix}${isLast ? "└─ " : "├─ "}${node.label}`;
+  const childPrefix = isRoot ? "" : `${prefix}${isLast ? "   " : "│  "}`;
+
+  return [
+    line,
+    ...children.flatMap((child, index) =>
+      renderExportNode({
+        includeTechnical,
+        isLast: index === children.length - 1,
+        isRoot: false,
+        node: child,
+        prefix: childPrefix,
+      }),
+    ),
+  ];
+}
+
+function getVisibleExportNodes(
+  node: DeliverableNode,
+  includeTechnical: boolean,
+): DeliverableNode[] {
+  if (!includeTechnical && node.nodeType === "technical_variant") {
+    return (node.children ?? []).flatMap((child) =>
+      getVisibleExportNodes(child, includeTechnical),
+    );
+  }
+
+  return [node];
 }
 
 function buildCsvExport(paths: ExportPath[]) {
@@ -2573,10 +2609,6 @@ function buildCsvExport(paths: ExportPath[]) {
 
 function escapeCsvCell(value: string) {
   return `"${value.replace(/"/g, '""')}"`;
-}
-
-function escapeMarkdownCell(value: string) {
-  return value.replace(/\|/g, "\\|");
 }
 
 function downloadTextFile(content: string, filename: string, mimeType: string) {
