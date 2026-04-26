@@ -1617,10 +1617,14 @@ function ExportPanel({
         {exportPaths.length} terminal rows ready
       </div>
       {showTextExport ? (
-        <Modal onClose={() => setShowTextExport(false)} title="Plain text export">
+        <Modal
+          maxWidthClassName="max-w-5xl"
+          onClose={() => setShowTextExport(false)}
+          title="Plain text export"
+        >
           <div className="grid gap-3">
             <textarea
-              className="dt-input mono min-h-[420px] resize-y whitespace-pre text-[12px] leading-relaxed"
+              className="dt-input mono min-h-[70vh] resize-y whitespace-pre text-[10.5px] leading-snug"
               readOnly
               value={textExport}
             />
@@ -2008,16 +2012,20 @@ function TreeOutlineNode({ node }: { node: DeliverableNode }) {
 
 function Modal({
   children,
+  maxWidthClassName = "max-w-lg",
   onClose,
   title,
 }: {
   children: ReactNode;
+  maxWidthClassName?: string;
   onClose: () => void;
   title: string;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(26,24,21,0.28)] p-4">
-      <div className="dt-panel w-full max-w-lg bg-[var(--bg-panel)] p-5 shadow-[var(--shadow-pop)]">
+      <div
+        className={`dt-panel w-full bg-[var(--bg-panel)] p-5 shadow-[var(--shadow-pop)] ${maxWidthClassName}`}
+      >
         <div className="flex items-start justify-between gap-4">
           <h2 className="text-lg font-semibold">{title}</h2>
           <button
@@ -2516,45 +2524,40 @@ function renderExportTree(nodes: DeliverableNode[], includeTechnical: boolean) {
     getVisibleExportNodes(node, includeTechnical),
   );
 
-  return visibleNodes.flatMap((node, index) =>
+  return visibleNodes.flatMap((node) =>
     renderExportNode({
+      depth: 0,
       includeTechnical,
-      isLast: index === visibleNodes.length - 1,
       isRoot: true,
       node,
-      prefix: "",
     }),
   );
 }
 
 function renderExportNode({
+  depth,
   includeTechnical,
-  isLast,
   isRoot,
   node,
-  prefix,
 }: {
+  depth: number;
   includeTechnical: boolean;
-  isLast: boolean;
   isRoot: boolean;
   node: DeliverableNode;
-  prefix: string;
 }): string[] {
   const children = (node.children ?? []).flatMap((child) =>
     getVisibleExportNodes(child, includeTechnical),
   );
-  const line = isRoot ? node.label : `${prefix}${isLast ? "└─ " : "├─ "}${node.label}`;
-  const childPrefix = isRoot ? "" : `${prefix}${isLast ? "   " : "│  "}`;
+  const line = isRoot ? node.label : `${"\t".repeat(depth)}→ ${node.label}`;
 
   return [
     line,
-    ...children.flatMap((child, index) =>
+    ...children.flatMap((child) =>
       renderExportNode({
+        depth: depth + 1,
         includeTechnical,
-        isLast: index === children.length - 1,
         isRoot: false,
         node: child,
-        prefix: childPrefix,
       }),
     ),
   ];
