@@ -5,6 +5,7 @@ export type MatrixNodeType =
   | "duration"
   | "aspect_ratio"
   | "platform"
+  | "localization"
   | "technical_variant"
   | "output_format";
 
@@ -19,6 +20,7 @@ export type DeliverableTree = {
   version: 1;
   hierarchy: MatrixNodeType[];
   optionalLevels: MatrixNodeType[];
+  enabledForkTypes?: MatrixNodeType[];
   defaultOutputFormats?: string[];
   autoApplyOutputFormats?: boolean;
   nodes: DeliverableNode[];

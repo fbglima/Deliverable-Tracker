@@ -14,6 +14,14 @@ export const defaultHierarchy: MatrixNodeType[] = [
 
 export const optionalLevels: MatrixNodeType[] = [
   "platform",
+  "localization",
+  "technical_variant",
+];
+
+export const defaultEnabledForkTypes: MatrixNodeType[] = [
+  "duration",
+  "aspect_ratio",
+  "platform",
   "technical_variant",
 ];
 
@@ -22,6 +30,7 @@ export const nodeTypeLabels: Record<MatrixNodeType, string> = {
   duration: "Duration / Cut",
   aspect_ratio: "Aspect Ratio / Placement",
   platform: "Platform",
+  localization: "Localization",
   technical_variant: "Technical Variant",
   output_format: "Output Format",
 };
@@ -30,7 +39,8 @@ export const childOptions: Record<MatrixNodeType, MatrixNodeType[]> = {
   creative_unit: ["duration"],
   duration: ["aspect_ratio"],
   aspect_ratio: ["output_format", "platform", "technical_variant"],
-  platform: ["technical_variant", "output_format"],
+  platform: ["localization", "technical_variant", "output_format"],
+  localization: ["technical_variant", "output_format"],
   technical_variant: ["output_format"],
   output_format: [],
 };
@@ -40,6 +50,7 @@ export const presetValues: Record<MatrixNodeType, string[]> = {
   duration: [":60", ":30", ":15", ":06"],
   aspect_ratio: ["16x9", "9x16", "1x1", "4x5"],
   platform: ["Instagram", "TikTok", "YouTube", "Meta"],
+  localization: ["Global", "US", "LATAM", "Brazil", "France"],
   technical_variant: ["With Slate", "Without Slate", "Broadcast", "Web"],
   output_format: ["H264 MP4", "ProRes MOV"],
 };
@@ -66,6 +77,7 @@ export function createDefaultTree(): DeliverableTree {
     version: 1,
     hierarchy: defaultHierarchy,
     optionalLevels,
+    enabledForkTypes: defaultEnabledForkTypes,
     defaultOutputFormats: ["H264 MP4", "ProRes MOV"],
     autoApplyOutputFormats: true,
     nodes: [

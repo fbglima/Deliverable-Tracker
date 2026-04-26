@@ -10,12 +10,17 @@ import {
 import { useRouter } from "next/navigation";
 import {
   ChevronRight,
+  Clock3,
+  FileText,
+  Languages,
   LayoutGrid,
   ListTree,
   MoreHorizontal,
+  Monitor,
   Plus,
   Save,
   Search,
+  SlidersHorizontal,
   Sparkles,
   Table2,
   Trash2,
@@ -26,6 +31,7 @@ import {
   countNodesByType,
   countTerminalsForNode,
   createNode,
+  defaultEnabledForkTypes,
   nodeTypeLabels,
   presetValues,
 } from "@/lib/tree";
@@ -77,6 +83,46 @@ const densityVars: Record<Density, CSSProperties> = {
     "--row-meta-fs": "12px",
   } as CSSProperties,
 };
+
+const forkTypeOrder: MatrixNodeType[] = [
+  "duration",
+  "aspect_ratio",
+  "platform",
+  "localization",
+  "technical_variant",
+];
+
+const taxonomyOptions: Array<{
+  type: MatrixNodeType;
+  example: string;
+  description: string;
+}> = [
+  {
+    type: "duration",
+    example: ":30",
+    description: "Cuts, lengths, and alternates like :30, :15, or cutdown.",
+  },
+  {
+    type: "aspect_ratio",
+    example: "16x9",
+    description: "Placement shapes like 16x9, 9x16, 1x1, or 4x5.",
+  },
+  {
+    type: "platform",
+    example: "TikTok",
+    description: "Channel or destination forks such as TikTok or YouTube.",
+  },
+  {
+    type: "localization",
+    example: "LATAM",
+    description: "Markets, languages, regions, or locale-specific copy.",
+  },
+  {
+    type: "technical_variant",
+    example: "Captioned",
+    description: "Generic, captioned, clean, textless, slate, or legal variants.",
+  },
+];
 
 export function TreeEditor({
   project,
@@ -143,6 +189,7 @@ export function TreeEditor({
       ? tree.defaultOutputFormats
       : ["H264 MP4", "ProRes MOV"];
   const autoApplyOutputFormats = tree.autoApplyOutputFormats ?? true;
+  const enabledForkTypes = getEnabledForkTypes(tree);
 
   function commitTree(nextTree: DeliverableTree) {
     setTree(nextTree);
@@ -208,7 +255,10 @@ export function TreeEditor({
 
   function openAddVersions(nodeId?: string) {
     const sourceNode = nodeId ? findNode(tree.nodes, nodeId) : null;
-    const addableTypes = getAddableTypesForNode(sourceNode?.nodeType ?? null);
+    const addableTypes = getAddableTypesForNode(
+      sourceNode?.nodeType ?? null,
+      enabledForkTypes,
+    );
 
     if (!addableTypes.length) {
       setStatus("Output format rows are terminal. Add new forks above this file row.");
@@ -249,6 +299,7 @@ export function TreeEditor({
       autoApplyOutputFormats,
       defaultOutputFormats,
       labels: uniqueLabels,
+      enabledForkTypes,
       selectedNodeId: versionsTarget === "selected" ? versionSourceNodeId : null,
       target: versionsTarget,
       type: versionsType,
@@ -268,6 +319,21 @@ export function TreeEditor({
       ...tree,
       autoApplyOutputFormats: autoApply,
       defaultOutputFormats: formats,
+    });
+  }
+
+  function updateEnabledForkTypes(nextEnabledForkTypes: MatrixNodeType[]) {
+    commitTree({
+      ...tree,
+      enabledForkTypes: nextEnabledForkTypes,
+      hierarchy: [
+        "creative_unit",
+        ...nextEnabledForkTypes,
+        "output_format",
+      ],
+      optionalLevels: nextEnabledForkTypes.filter(
+        (type) => !["duration", "aspect_ratio"].includes(type),
+      ),
     });
   }
 
@@ -407,12 +473,13 @@ export function TreeEditor({
           </div>
 
           <aside className="grid content-start gap-4">
-            <ProjectDefaultsPanel
+            <ProjectSettingsPanel
               autoApply={autoApplyOutputFormats}
+              enabledForkTypes={enabledForkTypes}
               formats={defaultOutputFormats}
-              onChange={updateOutputDefaults}
+              onForkTypesChange={updateEnabledForkTypes}
+              onOutputChange={updateOutputDefaults}
             />
-            <TaxonomyPanel onAddVersions={() => openAddVersions()} />
             <SnapshotPanel
               isPending={isPending}
               onNotes={setSnapshotNotes}
@@ -483,7 +550,9 @@ export function TreeEditor({
           presetLabels={selectedPresetLabels}
           addableTypes={getAddableTypesForNode(
             versionSourceNode?.nodeType ?? null,
+            enabledForkTypes,
           )}
+          enabledForkTypes={enabledForkTypes}
           selectedNodeLabel={versionSourceNode?.label ?? null}
           selectedNodeType={versionSourceNode?.nodeType ?? null}
           target={versionsTarget}
@@ -769,6 +838,7 @@ function MatrixRow({
             <span className="h-1.5 w-1.5 rounded-full bg-[var(--ink-4)]" />
           )}
         </button>
+        <NodeGlyph label={node.label} nodeType={node.nodeType} />
         <TypeTag kind={kind} />
         {isEditing ? (
           <input
@@ -950,13 +1020,64 @@ function IndentRail({
   );
 }
 
-function TypeTag({ kind }: { kind: "unit" | "cut" | "ratio" | "file" | "platform" | "variant" }) {
+function NodeGlyph({
+  label,
+  nodeType,
+}: {
+  label: string;
+  nodeType: MatrixNodeType;
+}) {
+  if (nodeType === "aspect_ratio") {
+    const ratio = parseAspectRatio(label);
+    return (
+      <span className="ml-1 flex h-6 w-6 shrink-0 items-center justify-center text-[var(--ink-3)]">
+        <span
+          className="block rounded-[2px] border border-current"
+          style={{
+            height: ratio.height,
+            width: ratio.width,
+          }}
+        />
+      </span>
+    );
+  }
+
+  const iconClass = "h-3.5 w-3.5";
+  const icon = {
+    creative_unit: <Sparkles className={iconClass} />,
+    duration: <Clock3 className={iconClass} />,
+    platform: <Monitor className={iconClass} />,
+    localization: <Languages className={iconClass} />,
+    technical_variant: <SlidersHorizontal className={iconClass} />,
+    output_format: <FileText className={iconClass} />,
+  }[nodeType];
+
+  return (
+    <span className="ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--bg-app)] text-[var(--ink-3)]">
+      {icon}
+    </span>
+  );
+}
+
+function TypeTag({
+  kind,
+}: {
+  kind:
+    | "unit"
+    | "cut"
+    | "ratio"
+    | "file"
+    | "platform"
+    | "locale"
+    | "variant";
+}) {
   const label = {
     unit: "UNIT",
     cut: "CUT",
     ratio: "RATIO",
     file: "FILE",
     platform: "PLAT",
+    locale: "LOC",
     variant: "VAR",
   }[kind];
 
@@ -993,15 +1114,20 @@ function FanBadge({
   );
 }
 
-function ProjectDefaultsPanel({
+function ProjectSettingsPanel({
   autoApply,
+  enabledForkTypes,
   formats,
-  onChange,
+  onForkTypesChange,
+  onOutputChange,
 }: {
   autoApply: boolean;
+  enabledForkTypes: MatrixNodeType[];
   formats: string[];
-  onChange: (formats: string[], autoApply: boolean) => void;
+  onForkTypesChange: (forkTypes: MatrixNodeType[]) => void;
+  onOutputChange: (formats: string[], autoApply: boolean) => void;
 }) {
+  const [activeTab, setActiveTab] = useState<"outputs" | "taxonomy">("outputs");
   const baseFormats = ["H264 MP4", "ProRes MOV", "WebM"];
   const [customFormat, setCustomFormat] = useState("");
   const options = Array.from(new Set([...baseFormats, ...formats]));
@@ -1010,7 +1136,7 @@ function ProjectDefaultsPanel({
     const nextFormats = formats.includes(format)
       ? formats.filter((item) => item !== format)
       : [...formats, format];
-    onChange(nextFormats.length ? nextFormats : ["H264 MP4"], autoApply);
+    onOutputChange(nextFormats.length ? nextFormats : ["H264 MP4"], autoApply);
   }
 
   function addCustomFormat() {
@@ -1018,91 +1144,133 @@ function ProjectDefaultsPanel({
     if (!nextFormat) {
       return;
     }
-    onChange(Array.from(new Set([...formats, nextFormat])), autoApply);
+    onOutputChange(Array.from(new Set([...formats, nextFormat])), autoApply);
     setCustomFormat("");
+  }
+
+  function toggleForkType(forkType: MatrixNodeType) {
+    const nextForkTypes = enabledForkTypes.includes(forkType)
+      ? enabledForkTypes.filter((item) => item !== forkType)
+      : [...enabledForkTypes, forkType];
+    onForkTypesChange(sortForkTypes(nextForkTypes));
   }
 
   return (
     <section className="dt-panel p-4">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold">Output defaults</h2>
+        <h2 className="text-sm font-semibold">Project setup</h2>
         <span className="dt-eyebrow">Project</span>
       </div>
-      <p className="dt-sub mt-2">
-        These formats populate new aspect-ratio branches when auto-populate is on.
-      </p>
-      <div className="mt-4 grid gap-2">
-        {options.map((format) => (
-          <label
-            className="flex items-center gap-2 rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--bg-app)] px-2 py-1.5 text-sm text-[var(--ink-2)]"
-            key={format}
-          >
-            <input
-              checked={formats.includes(format)}
-              onChange={() => toggleFormat(format)}
-              type="checkbox"
-            />
-            <span className="mono">{format}</span>
-          </label>
-        ))}
-      </div>
-      <div className="mt-3 flex gap-2">
-        <input
-          className="dt-input min-w-0 flex-1"
-          onChange={(event) => setCustomFormat(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              addCustomFormat();
-            }
-          }}
-          placeholder="Custom format"
-          value={customFormat}
-        />
-        <button className="dt-btn" onClick={addCustomFormat} type="button">
-          Add
+      <div className="dt-segment mt-4 w-full">
+        <button
+          className={activeTab === "outputs" ? "is-active" : ""}
+          onClick={() => setActiveTab("outputs")}
+          type="button"
+        >
+          Output defaults
+        </button>
+        <button
+          className={activeTab === "taxonomy" ? "is-active" : ""}
+          onClick={() => setActiveTab("taxonomy")}
+          type="button"
+        >
+          Project taxonomy
         </button>
       </div>
-      <label className="mt-3 flex items-start gap-2 text-sm text-[var(--ink-2)]">
-        <input
-          checked={autoApply}
-          className="mt-1"
-          onChange={(event) => onChange(formats, event.target.checked)}
-          type="checkbox"
-        />
-        Auto-populate new aspect ratios with these output formats.
-      </label>
-    </section>
-  );
-}
 
-function TaxonomyPanel({ onAddVersions }: { onAddVersions: () => void }) {
-  return (
-    <section className="dt-panel p-4">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold">Fork taxonomy</h2>
-        <span className="dt-eyebrow">Flow</span>
-      </div>
-      <p className="dt-sub mt-2">
-        The current path is Creative Unit / Duration / Aspect Ratio, with
-        optional Platform, Technical Variant, and Output Format forks below it.
-      </p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {["Generic", "Localized", "Captioned", "Clean", "Textless"].map(
-          (item) => (
-            <span className="dt-chip" key={item}>
-              {item}
-            </span>
-          ),
-        )}
-      </div>
-      <p className="dt-sub mt-3">
-        Use Technical Variant for now for generics, localization, caption
-        burn-ins, legal, or clean/textless branches. Dedicated fork levels can
-        be added next once the taxonomy settles.
-      </p>
-      <button className="dt-btn mt-4 w-fit" onClick={onAddVersions} type="button">
-        <Plus className="h-3.5 w-3.5" /> Add fork level
-      </button>
+      {activeTab === "outputs" ? (
+        <>
+          <p className="dt-sub mt-4">
+            These formats populate new terminal branches when auto-populate is on.
+          </p>
+          <div className="mt-4 grid gap-2">
+            {options.map((format) => (
+              <label
+                className="flex items-center gap-2 rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--bg-app)] px-2 py-1.5 text-sm text-[var(--ink-2)]"
+                key={format}
+              >
+                <input
+                  checked={formats.includes(format)}
+                  onChange={() => toggleFormat(format)}
+                  type="checkbox"
+                />
+                <span className="mono">{format}</span>
+              </label>
+            ))}
+          </div>
+          <div className="mt-3 flex gap-2">
+            <input
+              className="dt-input min-w-0 flex-1"
+              onChange={(event) => setCustomFormat(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  addCustomFormat();
+                }
+              }}
+              placeholder="Custom format"
+              value={customFormat}
+            />
+            <button className="dt-btn" onClick={addCustomFormat} type="button">
+              Add
+            </button>
+          </div>
+          <label className="mt-3 flex items-start gap-2 text-sm text-[var(--ink-2)]">
+            <input
+              checked={autoApply}
+              className="mt-1"
+              onChange={(event) =>
+                onOutputChange(formats, event.target.checked)
+              }
+              type="checkbox"
+            />
+            Auto-populate new taxonomy branches with these output formats.
+          </label>
+        </>
+      ) : (
+        <div className="mt-4 grid gap-3">
+          <p className="dt-sub">
+            Creative Unit and Output Format are always present. Enable only the
+            fork levels this project needs.
+          </p>
+          <div className="grid gap-2">
+            {taxonomyOptions.map((option) => (
+              <label
+                className="flex items-start gap-3 rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--bg-app)] px-3 py-2.5 text-sm text-[var(--ink-2)]"
+                key={option.type}
+              >
+                <input
+                  checked={enabledForkTypes.includes(option.type)}
+                  className="mt-1"
+                  onChange={() => toggleForkType(option.type)}
+                  type="checkbox"
+                />
+                <span className="mt-0.5 text-[var(--ink-3)]">
+                  <NodeGlyph label={option.example} nodeType={option.type} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block font-medium text-[var(--ink-1)]">
+                    {nodeTypeLabels[option.type]}
+                  </span>
+                  <span className="dt-sub mt-0.5 block">{option.description}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <div className="rounded-[var(--r-sm)] border border-dashed border-[var(--line-strong)] bg-[var(--bg-subtle)] p-3">
+            <div className="dt-eyebrow">Active path</div>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-[var(--ink-2)]">
+              {getTaxonomyFlow(enabledForkTypes).map((type, index, path) => (
+                <span className="inline-flex items-center gap-1.5" key={type}>
+                  <span className="dt-chip">{nodeTypeLabels[type]}</span>
+                  {index < path.length - 1 ? (
+                    <ChevronRight className="h-3 w-3 text-[var(--ink-4)]" />
+                  ) : null}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -1298,6 +1466,7 @@ function Modal({
 function AddVersionsModal({
   addableTypes,
   customLabels,
+  enabledForkTypes,
   onClose,
   onCustomLabels,
   onPresetLabels,
@@ -1312,6 +1481,7 @@ function AddVersionsModal({
 }: {
   addableTypes: MatrixNodeType[];
   customLabels: string;
+  enabledForkTypes: MatrixNodeType[];
   onClose: () => void;
   onCustomLabels: (labels: string) => void;
   onPresetLabels: (labels: string[]) => void;
@@ -1396,7 +1566,7 @@ function AddVersionsModal({
                 <>
                   <span className="dt-chip">{selectedNodeLabel}</span>
                   <span className="text-[var(--ink-4)]">
-                    {scopeDescription(selectedNodeType, type)}
+                    {scopeDescription(selectedNodeType, type, enabledForkTypes)}
                   </span>
                 </>
               ) : (
@@ -1544,49 +1714,75 @@ function slugifyPart(value: string) {
     .toLowerCase();
 }
 
-function getAddableTypesForNode(
-  nodeType: MatrixNodeType | null,
-): MatrixNodeType[] {
-  if (!nodeType) {
-    return [
-      "duration",
-      "aspect_ratio",
-      "platform",
-      "technical_variant",
-      "output_format",
-    ];
+function getEnabledForkTypes(tree: DeliverableTree) {
+  return sortForkTypes(
+    tree.enabledForkTypes?.length
+      ? tree.enabledForkTypes
+      : defaultEnabledForkTypes,
+  );
+}
+
+function sortForkTypes(types: MatrixNodeType[]) {
+  const uniqueTypes = new Set(types.filter((type) => forkTypeOrder.includes(type)));
+
+  return forkTypeOrder.filter((type) => uniqueTypes.has(type));
+}
+
+function getTaxonomyFlow(enabledForkTypes: MatrixNodeType[]) {
+  return [
+    "creative_unit",
+    ...sortForkTypes(enabledForkTypes),
+    "output_format",
+  ] satisfies MatrixNodeType[];
+}
+
+function parseAspectRatio(label: string) {
+  const match = label.match(/(\d+(?:\.\d+)?)\s*[x:]\s*(\d+(?:\.\d+)?)/i);
+
+  if (!match) {
+    return { height: 14, width: 18 };
   }
 
-  const flow: MatrixNodeType[] = [
-    "creative_unit",
-    "duration",
-    "aspect_ratio",
-    "platform",
-    "technical_variant",
-    "output_format",
-  ];
+  const widthValue = Number(match[1]);
+  const heightValue = Number(match[2]);
+  const ratio = widthValue / heightValue;
+
+  if (ratio > 1.4) {
+    return { height: 11, width: 20 };
+  }
+
+  if (ratio < 0.8) {
+    return { height: 20, width: 11 };
+  }
+
+  return { height: 16, width: 16 };
+}
+
+function getAddableTypesForNode(
+  nodeType: MatrixNodeType | null,
+  enabledForkTypes: MatrixNodeType[],
+): MatrixNodeType[] {
+  const flow = getTaxonomyFlow(enabledForkTypes);
+
+  if (!nodeType) {
+    return flow.filter((type) => type !== "creative_unit");
+  }
+
   const index = flow.indexOf(nodeType);
 
   if (index < 0) {
     return [];
   }
 
-  if (nodeType === "aspect_ratio") {
-    return ["platform", "technical_variant", "output_format"];
-  }
-
-  if (nodeType === "platform") {
-    return ["technical_variant", "output_format"];
-  }
-
-  return flow.slice(index + 1).filter((type) => type !== "creative_unit");
+  return flow.slice(index + 1);
 }
 
 function scopeDescription(
   selectedNodeType: MatrixNodeType,
   versionType: MatrixNodeType,
+  enabledForkTypes: MatrixNodeType[],
 ) {
-  if (canAddVersionToParent(selectedNodeType, versionType)) {
+  if (canAddVersionToParent(selectedNodeType, versionType, enabledForkTypes)) {
     return `adds under this ${nodeTypeLabels[selectedNodeType]}`;
   }
 
@@ -1598,6 +1794,7 @@ function addVersionNodes(
   options: {
     autoApplyOutputFormats: boolean;
     defaultOutputFormats: string[];
+    enabledForkTypes: MatrixNodeType[];
     labels: string[];
     selectedNodeId: string | null;
     target: AddVersionsTarget;
@@ -1610,7 +1807,13 @@ function addVersionNodes(
     const inScope =
       options.target === "all" ||
       (options.selectedNodeId ? nextInsideSelectedBranch : false);
-    const shouldAddHere = inScope && canAddVersionToParent(node.nodeType, options.type);
+    const shouldAddHere =
+      inScope &&
+      canAddVersionToParent(
+        node.nodeType,
+        options.type,
+        options.enabledForkTypes,
+      );
     const existingChildren = node.children ?? [];
     const addedChildren = shouldAddHere
       ? options.labels
@@ -1650,7 +1853,9 @@ function createVersionNode(
 ) {
   const shouldAttachOutputs =
     autoApplyOutputFormats &&
-    ["aspect_ratio", "platform", "technical_variant"].includes(type);
+    ["aspect_ratio", "platform", "localization", "technical_variant"].includes(
+      type,
+    );
   const children = shouldAttachOutputs
     ? defaultOutputFormats.map((format) => createNode("output_format", format))
     : [];
@@ -1661,28 +1866,29 @@ function createVersionNode(
 function canAddVersionToParent(
   parentType: MatrixNodeType,
   childType: MatrixNodeType,
+  enabledForkTypes: MatrixNodeType[],
 ) {
-  if (childType === "duration") {
-    return parentType === "creative_unit";
-  }
-  if (childType === "aspect_ratio") {
-    return parentType === "duration";
-  }
-  if (childType === "platform") {
-    return parentType === "aspect_ratio";
-  }
-  if (childType === "technical_variant") {
-    return parentType === "aspect_ratio" || parentType === "platform";
-  }
   if (childType === "output_format") {
-    return (
-      parentType === "aspect_ratio" ||
-      parentType === "platform" ||
-      parentType === "technical_variant"
-    );
+    if (parentType === "creative_unit") {
+      return enabledForkTypes.length === 0;
+    }
+
+    if (parentType === "duration") {
+      return !enabledForkTypes.includes("aspect_ratio");
+    }
+
+    return [
+      "aspect_ratio",
+      "platform",
+      "localization",
+      "technical_variant",
+    ].includes(parentType);
   }
 
-  return false;
+  const flow = getTaxonomyFlow(enabledForkTypes);
+  const parentIndex = flow.indexOf(parentType);
+
+  return parentIndex >= 0 && flow[parentIndex + 1] === childType;
 }
 
 function findNode(nodes: DeliverableNode[], nodeId: string): DeliverableNode | null {
@@ -1734,6 +1940,7 @@ function rowKind(nodeType: MatrixNodeType) {
     duration: "cut",
     aspect_ratio: "ratio",
     platform: "platform",
+    localization: "locale",
     technical_variant: "variant",
     output_format: "file",
   } as const;
@@ -1747,6 +1954,7 @@ function metaType(nodeType: MatrixNodeType) {
     duration: "duration",
     aspect_ratio: "ratio",
     platform: "platform",
+    localization: "localization",
     technical_variant: "variant",
     output_format: "format",
   };
