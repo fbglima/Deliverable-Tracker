@@ -34,6 +34,11 @@ import {
   updateProjectDetails,
   updateProjectTree,
 } from "@/app/actions";
+import type {
+  AiConfidence,
+  AiIntakeResult,
+  AiSuggestion,
+} from "@/lib/ai/intake";
 import {
   calculateCounts,
   countNodesByType,
@@ -223,6 +228,16 @@ export function TreeEditor({
   const [compareSnapshotId, setCompareSnapshotId] = useState<string>(
     initialSnapshots[0]?.id ?? "",
   );
+  const [aiInputText, setAiInputText] = useState("");
+  const [aiResult, setAiResult] = useState<AiIntakeResult | null>(null);
+  const [aiStatus, setAiStatus] = useState("");
+  const [acceptedAiSuggestionIds, setAcceptedAiSuggestionIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [rejectedAiSuggestionIds, setRejectedAiSuggestionIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [isAnalyzingIntake, setIsAnalyzingIntake] = useState(false);
   const [enumerateTextExports, setEnumerateTextExports] = useState(false);
   const [includeTechnicalExports, setIncludeTechnicalExports] = useState(false);
   const [status, setStatus] = useState("Unsaved edits stay local until saved.");
@@ -478,6 +493,85 @@ export function TreeEditor({
     });
   }
 
+  async function analyzeIntake() {
+    const inputText = aiInputText.trim();
+
+    if (!inputText) {
+      setAiStatus("Paste client notes or a brief before analyzing.");
+      return;
+    }
+
+    setIsAnalyzingIntake(true);
+    setAiStatus("Analyzing pasted notes...");
+    setAiResult(null);
+    setAcceptedAiSuggestionIds(new Set());
+    setRejectedAiSuggestionIds(new Set());
+
+    try {
+      const response = await fetch("/api/ai/intake", {
+        body: JSON.stringify({
+          inputText,
+          project: {
+            client_name: projectClientName || null,
+            id: project.id,
+            name: projectName,
+          },
+          tree,
+        }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+      });
+      const result = (await response.json()) as AiIntakeResult & {
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(result.error ?? "Could not analyze intake.");
+      }
+
+      setAiResult(result);
+      setAiStatus("Review suggestions before applying them.");
+    } catch (error) {
+      setAiStatus(
+        error instanceof Error ? error.message : "Could not analyze intake.",
+      );
+    } finally {
+      setIsAnalyzingIntake(false);
+    }
+  }
+
+  function acceptAiSuggestion(suggestion: AiSuggestion) {
+    const nextNodes = addSuggestionPath(tree.nodes, suggestion.path, {
+      autoApplyOutputFormats,
+      defaultOutputFormats,
+    });
+
+    commitTree({ ...tree, nodes: nextNodes });
+    setOpenIds((current) => {
+      const next = new Set(current);
+      collectOpenIdsForPath(nextNodes, suggestion.path, next);
+      return next;
+    });
+    setAcceptedAiSuggestionIds((current) => new Set(current).add(suggestion.id));
+    setRejectedAiSuggestionIds((current) => {
+      const next = new Set(current);
+      next.delete(suggestion.id);
+      return next;
+    });
+    setStatus("AI suggestion applied locally. Save when ready.");
+  }
+
+  function rejectAiSuggestion(suggestionId: string) {
+    setRejectedAiSuggestionIds((current) => new Set(current).add(suggestionId));
+    setAcceptedAiSuggestionIds((current) => {
+      const next = new Set(current);
+      next.delete(suggestionId);
+      return next;
+    });
+  }
+
   return (
     <div className="dt-frame" style={densityVars[density]}>
       <TopBar
@@ -595,6 +689,18 @@ export function TreeEditor({
               onFilenameChange={updateFilenameDefaults}
               onForkTypesChange={updateEnabledForkTypes}
               onOutputChange={updateOutputDefaults}
+            />
+            <AiIntakePanel
+              acceptedSuggestionIds={acceptedAiSuggestionIds}
+              inputText={aiInputText}
+              isAnalyzing={isAnalyzingIntake}
+              onAccept={acceptAiSuggestion}
+              onAnalyze={analyzeIntake}
+              onInputText={setAiInputText}
+              onReject={rejectAiSuggestion}
+              rejectedSuggestionIds={rejectedAiSuggestionIds}
+              result={aiResult}
+              status={aiStatus}
             />
             <ExportPanel
               enumerateDeliverables={enumerateTextExports}
@@ -1634,6 +1740,198 @@ function SnapshotPanel({
         )}
       </div>
     </section>
+  );
+}
+
+function AiIntakePanel({
+  acceptedSuggestionIds,
+  inputText,
+  isAnalyzing,
+  onAccept,
+  onAnalyze,
+  onInputText,
+  onReject,
+  rejectedSuggestionIds,
+  result,
+  status,
+}: {
+  acceptedSuggestionIds: Set<string>;
+  inputText: string;
+  isAnalyzing: boolean;
+  onAccept: (suggestion: AiSuggestion) => void;
+  onAnalyze: () => void;
+  onInputText: (value: string) => void;
+  onReject: (suggestionId: string) => void;
+  rejectedSuggestionIds: Set<string>;
+  result: AiIntakeResult | null;
+  status: string;
+}) {
+  return (
+    <section className="dt-panel p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold">AI intake</h2>
+        <Sparkles className="h-4 w-4 text-[var(--ink-3)]" />
+      </div>
+      <p className="dt-sub mt-2">
+        Paste client notes or brief language. Suggestions stay local until you
+        accept them and save.
+      </p>
+      <p className="mt-3 rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--bg-subtle)] p-2 text-xs leading-5 text-[var(--ink-3)]">
+        Do not paste confidential or sensitive client material unless you have
+        permission to process it with AI.
+      </p>
+      <textarea
+        className="dt-input mt-3 min-h-36 resize-y text-sm leading-5"
+        onChange={(event) => onInputText(event.target.value)}
+        placeholder="Paste client email, brief notes, or scope language..."
+        value={inputText}
+      />
+      <button
+        className="dt-btn primary mt-3 w-full justify-center"
+        disabled={isAnalyzing}
+        onClick={onAnalyze}
+        type="button"
+      >
+        <Sparkles className="h-4 w-4" />
+        {isAnalyzing ? "Analyzing..." : "Analyze pasted text"}
+      </button>
+      {status ? <p className="dt-sub mt-2">{status}</p> : null}
+      {result ? (
+        <div className="mt-4 grid gap-4">
+          <div>
+            <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--ink-3)]">
+              Summary
+            </h3>
+            <p className="mt-2 text-sm leading-5 text-[var(--ink-2)]">
+              {result.summary}
+            </p>
+          </div>
+          <SuggestionList
+            acceptedSuggestionIds={acceptedSuggestionIds}
+            onAccept={onAccept}
+            onReject={onReject}
+            rejectedSuggestionIds={rejectedSuggestionIds}
+            suggestions={result.additions}
+          />
+          <AiNotes title="Possible changes/removals" notes={result.removalsOrChanges} />
+          <AiNotes title="Assumptions" notes={result.assumptions} />
+          <AiNotes title="Client questions" notes={result.questions} />
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function SuggestionList({
+  acceptedSuggestionIds,
+  onAccept,
+  onReject,
+  rejectedSuggestionIds,
+  suggestions,
+}: {
+  acceptedSuggestionIds: Set<string>;
+  onAccept: (suggestion: AiSuggestion) => void;
+  onReject: (suggestionId: string) => void;
+  rejectedSuggestionIds: Set<string>;
+  suggestions: AiSuggestion[];
+}) {
+  return (
+    <div>
+      <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--ink-3)]">
+        Suggested additions
+      </h3>
+      {suggestions.length ? (
+        <div className="mt-2 grid gap-2">
+          {suggestions.map((suggestion) => {
+            const accepted = acceptedSuggestionIds.has(suggestion.id);
+            const rejected = rejectedSuggestionIds.has(suggestion.id);
+
+            return (
+              <div
+                className="rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--bg-panel)] p-3"
+                key={suggestion.id}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-medium text-[var(--ink-1)]">
+                      {suggestion.title}
+                    </p>
+                    <p className="dt-sub mt-1">{suggestion.reason}</p>
+                  </div>
+                  <ConfidenceChip confidence={suggestion.confidence} />
+                </div>
+                <p className="mono mt-2 break-words text-[10.5px] leading-5 text-[var(--ink-3)]">
+                  {suggestion.path.map((item) => item.label).join(" → ")}
+                </p>
+                <div className="mt-3 flex justify-end gap-2">
+                  <button
+                    className="dt-btn"
+                    disabled={accepted || rejected}
+                    onClick={() => onReject(suggestion.id)}
+                    type="button"
+                  >
+                    {rejected ? "Rejected" : "Reject"}
+                  </button>
+                  <button
+                    className="dt-btn primary"
+                    disabled={accepted || rejected}
+                    onClick={() => onAccept(suggestion)}
+                    type="button"
+                  >
+                    {accepted ? "Accepted" : "Accept"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="dt-sub mt-2">No concrete additions suggested.</p>
+      )}
+    </div>
+  );
+}
+
+function AiNotes({
+  notes,
+  title,
+}: {
+  notes: AiIntakeResult["questions"];
+  title: string;
+}) {
+  if (!notes.length) {
+    return null;
+  }
+
+  return (
+    <div>
+      <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--ink-3)]">
+        {title}
+      </h3>
+      <div className="mt-2 grid gap-2">
+        {notes.map((note, index) => (
+          <div
+            className="rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--bg-panel)] p-3"
+            key={`${title}-${index}`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-sm leading-5 text-[var(--ink-2)]">{note.text}</p>
+              <ConfidenceChip confidence={note.confidence} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ConfidenceChip({ confidence }: { confidence: AiConfidence }) {
+  const label = `${confidence} confidence`;
+
+  return (
+    <span className="mono shrink-0 rounded-full border border-[var(--line)] px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-[var(--ink-3)]">
+      {label}
+    </span>
   );
 }
 
@@ -3422,6 +3720,108 @@ function addVersionNodes(
   }
 
   return nodes.map((node) => walk(node, false));
+}
+
+function addSuggestionPath(
+  nodes: DeliverableNode[],
+  path: AiSuggestion["path"],
+  options: {
+    autoApplyOutputFormats: boolean;
+    defaultOutputFormats: string[];
+  },
+) {
+  const cleanPath = path.filter((item) => item.label.trim());
+
+  if (!cleanPath.length) {
+    return nodes;
+  }
+
+  function addAtDepth(currentNodes: DeliverableNode[], depth: number): DeliverableNode[] {
+    const item = cleanPath[depth];
+    const existingIndex = currentNodes.findIndex(
+      (node) =>
+        node.nodeType === item.nodeType &&
+        node.label.toLowerCase() === item.label.trim().toLowerCase(),
+    );
+
+    if (existingIndex >= 0) {
+      return currentNodes.map((node, index) => {
+        if (index !== existingIndex) {
+          return node;
+        }
+
+        return {
+          ...node,
+          children:
+            depth === cleanPath.length - 1
+              ? node.children
+              : addAtDepth(node.children ?? [], depth + 1),
+        };
+      });
+    }
+
+    const newNode = createNode(
+      item.nodeType,
+      item.label.trim(),
+      depth === cleanPath.length - 1
+        ? defaultChildrenForSuggestion(item.nodeType, options)
+        : addAtDepth([], depth + 1),
+    );
+
+    return [...currentNodes, newNode];
+  }
+
+  return addAtDepth(nodes, 0);
+}
+
+function defaultChildrenForSuggestion(
+  nodeType: MatrixNodeType,
+  options: {
+    autoApplyOutputFormats: boolean;
+    defaultOutputFormats: string[];
+  },
+) {
+  if (
+    !options.autoApplyOutputFormats ||
+    nodeType === "output_format" ||
+    nodeType === "creative_unit" ||
+    nodeType === "duration"
+  ) {
+    return [];
+  }
+
+  return options.defaultOutputFormats.map((format) =>
+    createNode("output_format", format),
+  );
+}
+
+function collectOpenIdsForPath(
+  nodes: DeliverableNode[],
+  path: AiSuggestion["path"],
+  openIds: Set<string>,
+) {
+  function walk(currentNodes: DeliverableNode[], depth: number) {
+    const item = path[depth];
+
+    if (!item) {
+      return;
+    }
+
+    const match = currentNodes.find(
+      (node) =>
+        node.nodeType === item.nodeType &&
+        node.label.toLowerCase() === item.label.trim().toLowerCase(),
+    );
+
+    if (!match) {
+      return;
+    }
+
+    openIds.add(match.id);
+    walk(match.children ?? [], depth + 1);
+  }
+
+  walk(nodes, 0);
 }
 
 function createVersionNode(
