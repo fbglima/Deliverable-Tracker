@@ -19,6 +19,8 @@ export type DeliverableTree = {
   version: 1;
   hierarchy: MatrixNodeType[];
   optionalLevels: MatrixNodeType[];
+  defaultOutputFormats?: string[];
+  autoApplyOutputFormats?: boolean;
   nodes: DeliverableNode[];
 };
 

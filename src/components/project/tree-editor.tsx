@@ -1,27 +1,25 @@
 "use client";
 
-import { useMemo, useState, useTransition, type CSSProperties } from "react";
+import {
+  useMemo,
+  useState,
+  useTransition,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { useRouter } from "next/navigation";
 import {
-  Bot,
   ChevronRight,
-  Download,
-  GitCompareArrows,
-  GripVertical,
-  LayoutGrid,
-  ListTree,
   MoreHorizontal,
   Plus,
   Save,
   Search,
   Sparkles,
-  Table2,
   Trash2,
 } from "lucide-react";
 import { saveSnapshot, updateProjectTree } from "@/app/actions";
 import {
   calculateCounts,
-  childOptions,
   countNodesByType,
   countTerminalsForNode,
   createNode,
@@ -43,7 +41,7 @@ type TreeEditorProps = {
 };
 
 type Density = "compact" | "comfortable" | "roomy";
-type ViewMode = "rows" | "pivot" | "tree";
+type AddVersionsTarget = "selected" | "all";
 
 type VisibleRow = {
   node: DeliverableNode;
@@ -87,13 +85,24 @@ export function TreeEditor({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(
     tree.nodes[0]?.id ?? null,
   );
-  const [viewMode, setViewMode] = useState<ViewMode>("rows");
   const [density, setDensity] = useState<Density>("comfortable");
   const [search, setSearch] = useState("");
-  const [newChildType, setNewChildType] = useState<MatrixNodeType>("duration");
-  const [newChildLabel, setNewChildLabel] = useState("");
-  const [bulkLabels, setBulkLabels] = useState(":60\n:30\n:15\n:06");
-  const [showBulkAdd, setShowBulkAdd] = useState(false);
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
+  const [editingLabel, setEditingLabel] = useState("");
+  const [openMenuNodeId, setOpenMenuNodeId] = useState<string | null>(null);
+  const [showCreativeUnitModal, setShowCreativeUnitModal] = useState(false);
+  const [creativeUnitName, setCreativeUnitName] = useState("");
+  const [showVersionsModal, setShowVersionsModal] = useState(false);
+  const [versionsType, setVersionsType] = useState<MatrixNodeType>("duration");
+  const [versionsTarget, setVersionsTarget] =
+    useState<AddVersionsTarget>("selected");
+  const [selectedPresetLabels, setSelectedPresetLabels] = useState<string[]>([
+    ":60",
+    ":30",
+    ":15",
+    ":06",
+  ]);
+  const [customVersionLabels, setCustomVersionLabels] = useState("");
   const [snapshotName, setSnapshotName] = useState("Current");
   const [snapshotNotes, setSnapshotNotes] = useState("");
   const [status, setStatus] = useState("Unsaved edits stay local until saved.");
@@ -105,12 +114,6 @@ export function TreeEditor({
   const counts = calculateCounts(tree);
   const cuts = countNodesByType(tree, "duration");
   const ratios = countNodesByType(tree, "aspect_ratio");
-  const availableChildTypes = selectedNode
-    ? childOptions[selectedNode.nodeType]
-    : (["creative_unit"] as MatrixNodeType[]);
-  const activeChildType = availableChildTypes.includes(newChildType)
-    ? newChildType
-    : availableChildTypes[0] ?? "creative_unit";
   const rows = useMemo(() => flattenRows(tree.nodes, openIds), [tree, openIds]);
   const filteredRows = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -123,6 +126,11 @@ export function TreeEditor({
   const projectTitle = [project.client_name, project.name]
     .filter(Boolean)
     .join(" · ");
+  const defaultOutputFormats =
+    tree.defaultOutputFormats?.length
+      ? tree.defaultOutputFormats
+      : ["H264 MP4", "ProRes MOV"];
+  const autoApplyOutputFormats = tree.autoApplyOutputFormats ?? true;
 
   function commitTree(nextTree: DeliverableTree) {
     setTree(nextTree);
@@ -147,85 +155,100 @@ export function TreeEditor({
     });
   }
 
-  function renameSelected(label: string) {
-    if (!selectedNodeId) {
-      return;
-    }
-
+  function renameNode(nodeId: string, label: string) {
     commitTree({
       ...tree,
-      nodes: mapNodes(tree.nodes, selectedNodeId, (node) => ({
+      nodes: mapNodes(tree.nodes, nodeId, (node) => ({
         ...node,
         label,
       })),
     });
   }
 
-  function addChild() {
-    const label =
-      newChildLabel.trim() || presetValues[activeChildType][0] || "New branch";
-    const child = createNode(activeChildType, label);
+  function startInlineEdit(node: DeliverableNode) {
+    setEditingNodeId(node.id);
+    setEditingLabel(node.label);
+  }
 
-    if (!selectedNodeId) {
-      commitTree({ ...tree, nodes: [...tree.nodes, child] });
-      setSelectedNodeId(child.id);
-      setNewChildLabel("");
-      return;
+  function commitInlineEdit() {
+    if (editingNodeId && editingLabel.trim()) {
+      renameNode(editingNodeId, editingLabel.trim());
     }
-
-    commitTree({
-      ...tree,
-      nodes: mapNodes(tree.nodes, selectedNodeId, (node) => ({
-        ...node,
-        children: [...(node.children ?? []), child],
-      })),
-    });
-    setOpenIds((current) => new Set(current).add(selectedNodeId));
-    setSelectedNodeId(child.id);
-    setNewChildLabel("");
+    setEditingNodeId(null);
+    setEditingLabel("");
   }
 
   function addCreativeUnit() {
-    const child = createNode("creative_unit", "Creative Unit 01");
+    const label = creativeUnitName.trim() || "Creative Unit 01";
+    const child = createNode("creative_unit", label);
     commitTree({ ...tree, nodes: [...tree.nodes, child] });
     setSelectedNodeId(child.id);
+    setOpenIds((current) => new Set(current).add(child.id));
+    setCreativeUnitName("");
+    setShowCreativeUnitModal(false);
   }
 
-  function bulkAdd() {
-    const labels = bulkLabels
-      .split(/\n|,/)
-      .map((label) => label.trim())
-      .filter(Boolean);
+  function deleteNode(nodeId: string) {
+    commitTree({ ...tree, nodes: removeNode(tree.nodes, nodeId) });
+    setSelectedNodeId((current) => (current === nodeId ? null : current));
+    setOpenMenuNodeId(null);
+  }
 
-    if (!labels.length) {
+  function openAddVersions(nodeId?: string) {
+    if (nodeId) {
+      setSelectedNodeId(nodeId);
+    }
+    setOpenMenuNodeId(null);
+    if (!nodeId && !selectedNodeId) {
+      setVersionsTarget("all");
+    }
+    setSelectedPresetLabels(presetValues[versionsType]);
+    setCustomVersionLabels("");
+    setShowVersionsModal(true);
+  }
+
+  function addVersions() {
+    const labels = [
+      ...selectedPresetLabels,
+      ...customVersionLabels
+        .split(/\n|,/)
+        .map((label) => label.trim())
+        .filter(Boolean),
+    ];
+    const uniqueLabels = Array.from(new Set(labels));
+
+    if (!uniqueLabels.length) {
       return;
     }
 
-    const children = labels.map((label) => createNode(activeChildType, label));
+    const selectedCreativeId = selectedNodeId
+      ? findAncestorId(tree.nodes, selectedNodeId, "creative_unit")
+      : null;
 
-    if (!selectedNodeId) {
-      commitTree({ ...tree, nodes: [...tree.nodes, ...children] });
-      setSelectedNodeId(children[0]?.id ?? null);
-      return;
-    }
+    const nextNodes = addVersionNodes(tree.nodes, {
+      autoApplyOutputFormats,
+      defaultOutputFormats,
+      labels: uniqueLabels,
+      selectedCreativeId,
+      target: versionsTarget,
+      type: versionsType,
+    });
 
+    commitTree({ ...tree, nodes: nextNodes });
+    setOpenIds((current) => {
+      const next = new Set(current);
+      collectOpenIdsForType(nextNodes, versionsType, next);
+      return next;
+    });
+    setShowVersionsModal(false);
+  }
+
+  function updateOutputDefaults(formats: string[], autoApply: boolean) {
     commitTree({
       ...tree,
-      nodes: mapNodes(tree.nodes, selectedNodeId, (node) => ({
-        ...node,
-        children: [...(node.children ?? []), ...children],
-      })),
+      autoApplyOutputFormats: autoApply,
+      defaultOutputFormats: formats,
     });
-    setOpenIds((current) => new Set(current).add(selectedNodeId));
-  }
-
-  function deleteSelected() {
-    if (!selectedNodeId) {
-      return;
-    }
-
-    commitTree({ ...tree, nodes: removeNode(tree.nodes, selectedNodeId) });
-    setSelectedNodeId(null);
   }
 
   function saveTree() {
@@ -283,58 +306,75 @@ export function TreeEditor({
       <Toolbar
         density={density}
         disabled={isPending}
-        onAddCreativeUnit={addCreativeUnit}
         onDensity={setDensity}
         onSave={saveTree}
         onSearch={setSearch}
         onSnapshot={createSnapshot}
-        onView={setViewMode}
         search={search}
-        view={viewMode}
       />
 
       <main className="dt-canvas">
         <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
           <div className="dt-panel overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--bg-panel)] px-4 py-3">
+              <div>
+                <h2 className="text-sm font-semibold">Deliverables</h2>
+                <p className="dt-sub mt-0.5">
+                  Click a label to rename it. Use row menus to add versions or delete forks.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  className="dt-btn"
+                  onClick={() => openAddVersions()}
+                  type="button"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add versions
+                </button>
+                <button
+                  className="dt-btn primary"
+                  onClick={() => setShowCreativeUnitModal(true)}
+                  type="button"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add creative unit
+                </button>
+              </div>
+            </div>
             <MatrixHeader />
             <div>
               {filteredRows.map((row) => (
                 <MatrixRow
+                  editingLabel={editingLabel}
+                  editingNodeId={editingNodeId}
                   isOpen={openIds.has(row.node.id)}
                   isSelected={selectedNodeId === row.node.id}
                   key={row.node.id}
+                  onCommitEdit={commitInlineEdit}
+                  onDelete={() => deleteNode(row.node.id)}
+                  onEditLabel={setEditingLabel}
+                  onMenu={() =>
+                    setOpenMenuNodeId((current) =>
+                      current === row.node.id ? null : row.node.id,
+                    )
+                  }
+                  onOpenAddVersions={() => openAddVersions(row.node.id)}
                   onSelect={() => toggleNode(row.node)}
+                  onStartEdit={() => {
+                    setOpenMenuNodeId(null);
+                    startInlineEdit(row.node);
+                  }}
+                  openMenu={openMenuNodeId === row.node.id}
                   row={row}
                 />
               ))}
             </div>
-            <AddRow
-              activeChildType={activeChildType}
-              bulkLabels={bulkLabels}
-              disabled={!availableChildTypes.length && Boolean(selectedNodeId)}
-              isOpen={showBulkAdd}
-              onBulkAdd={() => {
-                bulkAdd();
-                setShowBulkAdd(false);
-              }}
-              onBulkLabels={setBulkLabels}
-              onChildType={setNewChildType}
-              onToggle={() => setShowBulkAdd((value) => !value)}
-              types={availableChildTypes.length ? availableChildTypes : ["creative_unit"]}
-            />
           </div>
 
           <aside className="grid content-start gap-4">
-            <BranchPanel
-              activeChildType={activeChildType}
-              availableChildTypes={availableChildTypes}
-              newChildLabel={newChildLabel}
-              onAddChild={addChild}
-              onChildLabel={setNewChildLabel}
-              onChildType={setNewChildType}
-              onDelete={deleteSelected}
-              onRename={renameSelected}
-              selectedNode={selectedNode}
+            <ProjectDefaultsPanel
+              autoApply={autoApplyOutputFormats}
+              formats={defaultOutputFormats}
+              onChange={updateOutputDefaults}
             />
             <SnapshotPanel
               isPending={isPending}
@@ -349,6 +389,67 @@ export function TreeEditor({
           </aside>
         </section>
       </main>
+
+      {showCreativeUnitModal ? (
+        <Modal
+          onClose={() => setShowCreativeUnitModal(false)}
+          title="Add creative unit"
+        >
+          <p className="dt-sub">
+            Give this unit a working name. You can rename it inline later.
+          </p>
+          <label className="dt-field mt-4">
+            Creative unit name
+            <input
+              autoFocus
+              className="dt-input"
+              onChange={(event) => setCreativeUnitName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  addCreativeUnit();
+                }
+              }}
+              placeholder="Creative Unit 01"
+              value={creativeUnitName}
+            />
+          </label>
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              className="dt-btn"
+              onClick={() => setShowCreativeUnitModal(false)}
+              type="button"
+            >
+              Cancel
+            </button>
+            <button className="dt-btn primary" onClick={addCreativeUnit} type="button">
+              Add unit
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {showVersionsModal ? (
+        <AddVersionsModal
+          customLabels={customVersionLabels}
+          onClose={() => setShowVersionsModal(false)}
+          onCustomLabels={setCustomVersionLabels}
+          onPresetLabels={setSelectedPresetLabels}
+          onSubmit={addVersions}
+          onTarget={setVersionsTarget}
+          onType={(type) => {
+            setVersionsType(type);
+            setSelectedPresetLabels(presetValues[type]);
+          }}
+          presetLabels={selectedPresetLabels}
+          selectedCreativeName={
+            selectedNode
+              ? findAncestorLabel(tree.nodes, selectedNode.id, "creative_unit")
+              : null
+          }
+          target={versionsTarget}
+          type={versionsType}
+        />
+      ) : null}
     </div>
   );
 }
@@ -430,52 +531,22 @@ function Stat({ label, value }: { label: string; value: number }) {
 function Toolbar({
   density,
   disabled,
-  onAddCreativeUnit,
   onDensity,
   onSave,
   onSearch,
   onSnapshot,
-  onView,
   search,
-  view,
 }: {
   density: Density;
   disabled: boolean;
-  onAddCreativeUnit: () => void;
   onDensity: (density: Density) => void;
   onSave: () => void;
   onSearch: (search: string) => void;
   onSnapshot: () => void;
-  onView: (view: ViewMode) => void;
   search: string;
-  view: ViewMode;
 }) {
   return (
     <div className="dt-toolbar">
-      <div className="dt-segment">
-        <button
-          className={view === "rows" ? "is-active" : ""}
-          onClick={() => onView("rows")}
-          type="button"
-        >
-          <Table2 className="h-3.5 w-3.5" /> Rows
-        </button>
-        <button
-          className={view === "pivot" ? "is-active" : ""}
-          onClick={() => onView("pivot")}
-          type="button"
-        >
-          <LayoutGrid className="h-3.5 w-3.5" /> Pivot
-        </button>
-        <button
-          className={view === "tree" ? "is-active" : ""}
-          onClick={() => onView("tree")}
-          type="button"
-        >
-          <ListTree className="h-3.5 w-3.5" /> Tree
-        </button>
-      </div>
-
       <div className="dt-segment" title="Density">
         {(["compact", "comfortable", "roomy"] as Density[]).map((item) => (
           <button
@@ -502,23 +573,11 @@ function Toolbar({
       </label>
 
       <div className="flex-1" />
-      <button className="dt-btn" disabled type="button">
-        <GitCompareArrows className="h-3.5 w-3.5" /> Compare snapshots
-      </button>
-      <button className="dt-btn" disabled type="button">
-        <Bot className="h-3.5 w-3.5" /> AI assist
-      </button>
-      <button className="dt-btn" disabled type="button">
-        <Download className="h-3.5 w-3.5" /> Export
-      </button>
       <button className="dt-btn" disabled={disabled} onClick={onSnapshot} type="button">
         <Sparkles className="h-3.5 w-3.5" /> Snapshot
       </button>
       <button className="dt-btn" disabled={disabled} onClick={onSave} type="button">
         <Save className="h-3.5 w-3.5" /> Save
-      </button>
-      <button className="dt-btn primary" onClick={onAddCreativeUnit} type="button">
-        <Plus className="h-3.5 w-3.5" /> Add creative unit
       </button>
     </div>
   );
@@ -550,14 +609,32 @@ function MatrixHeader() {
 }
 
 function MatrixRow({
+  editingLabel,
+  editingNodeId,
   isOpen,
   isSelected,
+  onCommitEdit,
+  onDelete,
+  onEditLabel,
+  onMenu,
+  onOpenAddVersions,
   onSelect,
+  onStartEdit,
+  openMenu,
   row,
 }: {
+  editingLabel: string;
+  editingNodeId: string | null;
   isOpen: boolean;
   isSelected: boolean;
+  onCommitEdit: () => void;
+  onDelete: () => void;
+  onEditLabel: (label: string) => void;
+  onMenu: () => void;
+  onOpenAddVersions: () => void;
   onSelect: () => void;
+  onStartEdit: () => void;
+  openMenu: boolean;
   row: VisibleRow;
 }) {
   const { node } = row;
@@ -565,9 +642,11 @@ function MatrixRow({
   const kind = rowKind(node.nodeType);
   const hasChildren = Boolean(node.children?.length);
 
+  const isEditing = editingNodeId === node.id;
+
   return (
-    <button
-      className="group grid w-full grid-cols-[minmax(0,1fr)_110px_90px_72px_72px_28px] items-center border-b border-[var(--line-faint)] bg-transparent py-0 pr-[var(--row-px)] pl-2 text-left text-[var(--ink-1)] transition hover:bg-[var(--bg-subtle)]"
+    <div
+      className="group relative grid w-full grid-cols-[minmax(0,1fr)_110px_90px_72px_72px_28px] items-center border-b border-[var(--line-faint)] bg-transparent py-0 pr-[var(--row-px)] pl-2 text-left text-[var(--ink-1)] transition hover:bg-[var(--bg-subtle)]"
       onClick={onSelect}
       style={{
         minHeight: "var(--row-h)",
@@ -578,11 +657,19 @@ function MatrixRow({
             : undefined,
         fontSize: "var(--row-fs)",
       }}
-      type="button"
+      role="button"
+      tabIndex={0}
     >
       <div className="flex min-w-0 items-center" style={{ height: "var(--row-h)" }}>
         <IndentRail ancestorsLast={row.ancestorsLast} depth={row.depth} last={row.last} />
-        <span className="flex w-[18px] shrink-0 justify-center">
+        <button
+          className="flex w-[18px] shrink-0 justify-center"
+          onClick={(event) => {
+            event.stopPropagation();
+            onSelect();
+          }}
+          type="button"
+        >
           {hasChildren ? (
             <ChevronRight
               className="h-3 w-3 text-[var(--ink-3)] transition-transform duration-200"
@@ -591,20 +678,46 @@ function MatrixRow({
           ) : (
             <span className="h-1.5 w-1.5 rounded-full bg-[var(--ink-4)]" />
           )}
-        </span>
-        <GripVertical className="ml-1 mr-2 h-3.5 w-3.5 shrink-0 text-[var(--ink-4)] opacity-0 transition group-hover:opacity-70" />
+        </button>
         <TypeTag kind={kind} />
-        <span
-          className={`ml-2 min-w-0 truncate ${
-            node.nodeType === "output_format" ? "mono" : ""
-          }`}
-          style={{
-            fontWeight: node.nodeType === "creative_unit" ? 600 : 450,
-            letterSpacing: node.nodeType === "creative_unit" ? "-0.005em" : 0,
-          }}
-        >
-          {node.label}
-        </span>
+        {isEditing ? (
+          <input
+            autoFocus
+            className={`dt-input ml-2 h-7 min-w-0 flex-1 py-0 ${
+              node.nodeType === "output_format" ? "mono" : ""
+            }`}
+            onBlur={onCommitEdit}
+            onChange={(event) => onEditLabel(event.target.value)}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                onCommitEdit();
+              }
+              if (event.key === "Escape") {
+                onEditLabel(node.label);
+                onCommitEdit();
+              }
+            }}
+            value={editingLabel}
+          />
+        ) : (
+          <button
+            className={`ml-2 min-w-0 truncate text-left hover:underline ${
+              node.nodeType === "output_format" ? "mono" : ""
+            }`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onStartEdit();
+            }}
+            style={{
+              fontWeight: node.nodeType === "creative_unit" ? 600 : 450,
+              letterSpacing: node.nodeType === "creative_unit" ? "-0.005em" : 0,
+            }}
+            type="button"
+          >
+            {node.label}
+          </button>
+        )}
         {node.nodeType === "creative_unit" && row.depth === 0 ? (
           <span className="mono ml-2 inline-flex h-[18px] items-center rounded-[var(--r-sm)] border border-dashed border-[var(--accent)] px-1.5 text-[10px] font-medium text-[var(--accent-ink)]">
             current
@@ -626,9 +739,46 @@ function MatrixRow({
         {node.nodeType === "aspect_ratio" ? `× ${terminalCount}` : node.nodeType === "output_format" ? "—" : ""}
       </div>
       <div className="flex justify-end text-[var(--ink-4)] opacity-0 transition group-hover:opacity-100">
-        <MoreHorizontal className="h-3.5 w-3.5" />
+        <button
+          className="rounded-[var(--r-sm)] p-1 hover:bg-[var(--bg-panel)] hover:text-[var(--ink-1)]"
+          onClick={(event) => {
+            event.stopPropagation();
+            onMenu();
+          }}
+          type="button"
+        >
+          <MoreHorizontal className="h-3.5 w-3.5" />
+        </button>
       </div>
-    </button>
+      {openMenu ? (
+        <div
+          className="absolute right-5 top-[calc(100%-4px)] z-20 w-44 overflow-hidden rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--bg-elevated)] py-1 text-sm shadow-[var(--shadow-pop)]"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--bg-subtle)]"
+            onClick={onStartEdit}
+            type="button"
+          >
+            Rename
+          </button>
+          <button
+            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--bg-subtle)]"
+            onClick={onOpenAddVersions}
+            type="button"
+          >
+            Add versions
+          </button>
+          <button
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[#a33127] hover:bg-[#fff5f3]"
+            onClick={onDelete}
+            type="button"
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Delete row
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -733,167 +883,55 @@ function FanBadge({
   );
 }
 
-function AddRow({
-  activeChildType,
-  bulkLabels,
-  disabled,
-  isOpen,
-  onBulkAdd,
-  onBulkLabels,
-  onChildType,
-  onToggle,
-  types,
+function ProjectDefaultsPanel({
+  autoApply,
+  formats,
+  onChange,
 }: {
-  activeChildType: MatrixNodeType;
-  bulkLabels: string;
-  disabled: boolean;
-  isOpen: boolean;
-  onBulkAdd: () => void;
-  onBulkLabels: (value: string) => void;
-  onChildType: (type: MatrixNodeType) => void;
-  onToggle: () => void;
-  types: MatrixNodeType[];
+  autoApply: boolean;
+  formats: string[];
+  onChange: (formats: string[], autoApply: boolean) => void;
 }) {
-  return (
-    <div className="border-t border-[var(--line-faint)] bg-[var(--bg-tint)]">
-      <button
-        className="grid w-full grid-cols-[minmax(0,1fr)_110px_90px_72px_72px_28px] items-center px-[var(--row-px)] py-0 text-left text-[var(--ink-3)]"
-        disabled={disabled}
-        onClick={onToggle}
-        style={{ minHeight: "var(--row-h)" }}
-        type="button"
-      >
-        <div className="flex items-center gap-2 pl-2">
-          <Plus className="h-3.5 w-3.5" />
-          <span className="text-[12.5px]">
-            Add creative unit, or paste a brief...
-          </span>
-          <span className="flex-1" />
-          <span className="mono text-[10px] opacity-50">⌘⏎</span>
-        </div>
-      </button>
-      {isOpen ? (
-        <div className="grid gap-3 border-t border-[var(--line)] p-4">
-          <label className="dt-field">
-            Add as
-            <select
-              className="dt-input"
-              onChange={(event) => onChildType(event.target.value as MatrixNodeType)}
-              value={activeChildType}
-            >
-              {types.map((type) => (
-                <option key={type} value={type}>
-                  {nodeTypeLabels[type]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <textarea
-            className="dt-input min-h-28 resize-y mono"
-            onChange={(event) => onBulkLabels(event.target.value)}
-            onKeyDown={(event) => {
-              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                onBulkAdd();
-              }
-            }}
-            value={bulkLabels}
-          />
-          <button className="dt-btn primary w-fit" onClick={onBulkAdd} type="button">
-            Add rows
-          </button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
+  const [draftFormats, setDraftFormats] = useState(formats.join("\n"));
 
-function BranchPanel({
-  activeChildType,
-  availableChildTypes,
-  newChildLabel,
-  onAddChild,
-  onChildLabel,
-  onChildType,
-  onDelete,
-  onRename,
-  selectedNode,
-}: {
-  activeChildType: MatrixNodeType;
-  availableChildTypes: MatrixNodeType[];
-  newChildLabel: string;
-  onAddChild: () => void;
-  onChildLabel: (label: string) => void;
-  onChildType: (type: MatrixNodeType) => void;
-  onDelete: () => void;
-  onRename: (label: string) => void;
-  selectedNode: DeliverableNode | null;
-}) {
+  function saveDefaults(nextAutoApply = autoApply) {
+    const nextFormats = draftFormats
+      .split(/\n|,/)
+      .map((format) => format.trim())
+      .filter(Boolean);
+    onChange(nextFormats.length ? nextFormats : ["H264 MP4", "ProRes MOV"], nextAutoApply);
+  }
+
   return (
     <section className="dt-panel p-4">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold">Branch inspector</h2>
-        <span className="dt-eyebrow">JSON tree</span>
+        <h2 className="text-sm font-semibold">Output defaults</h2>
+        <span className="dt-eyebrow">Project</span>
       </div>
-
-      {selectedNode ? (
-        <div className="mt-4 grid gap-3">
-          <p className="dt-sub">{nodeTypeLabels[selectedNode.nodeType]}</p>
-          <label className="dt-field">
-            Label
-            <input
-              className="dt-input"
-              onChange={(event) => onRename(event.target.value)}
-              value={selectedNode.label}
-            />
-          </label>
-
-          <label className="dt-field">
-            Child level
-            <select
-              className="dt-input"
-              disabled={!availableChildTypes.length}
-              onChange={(event) => onChildType(event.target.value as MatrixNodeType)}
-              value={activeChildType}
-            >
-              {availableChildTypes.map((type) => (
-                <option key={type} value={type}>
-                  {nodeTypeLabels[type]}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="dt-field">
-            New branch label
-            <input
-              className="dt-input"
-              onChange={(event) => onChildLabel(event.target.value)}
-              placeholder={presetValues[activeChildType][0]}
-              value={newChildLabel}
-            />
-          </label>
-
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              className="dt-btn primary justify-center"
-              disabled={!availableChildTypes.length}
-              onClick={onAddChild}
-              type="button"
-            >
-              <Plus className="h-3.5 w-3.5" /> Add
-            </button>
-            <button
-              className="dt-btn justify-center text-[#a33127]"
-              onClick={onDelete}
-              type="button"
-            >
-              <Trash2 className="h-3.5 w-3.5" /> Delete
-            </button>
-          </div>
-        </div>
-      ) : (
-        <p className="dt-sub mt-4">Select a row to rename it or add child rows.</p>
-      )}
+      <p className="dt-sub mt-2">
+        These formats populate new aspect-ratio branches when auto-populate is on.
+      </p>
+      <label className="dt-field mt-4">
+        Terminal output formats
+        <textarea
+          className="dt-input min-h-24 mono"
+          onBlur={() => saveDefaults()}
+          onChange={(event) => setDraftFormats(event.target.value)}
+          value={draftFormats}
+        />
+      </label>
+      <label className="mt-3 flex items-start gap-2 text-sm text-[var(--ink-2)]">
+        <input
+          checked={autoApply}
+          className="mt-1"
+          onChange={(event) => saveDefaults(event.target.checked)}
+          type="checkbox"
+        />
+        Auto-populate new aspect ratios with these output formats.
+      </label>
+      <button className="dt-btn mt-4" onClick={() => saveDefaults()} type="button">
+        Save defaults
+      </button>
     </section>
   );
 }
@@ -969,6 +1007,164 @@ function SnapshotPanel({
   );
 }
 
+function Modal({
+  children,
+  onClose,
+  title,
+}: {
+  children: ReactNode;
+  onClose: () => void;
+  title: string;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(26,24,21,0.28)] p-4">
+      <div className="dt-panel w-full max-w-lg bg-[var(--bg-panel)] p-5 shadow-[var(--shadow-pop)]">
+        <div className="flex items-start justify-between gap-4">
+          <h2 className="text-lg font-semibold">{title}</h2>
+          <button
+            className="dt-btn h-7 px-2"
+            onClick={onClose}
+            type="button"
+          >
+            Close
+          </button>
+        </div>
+        <div className="mt-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function AddVersionsModal({
+  customLabels,
+  onClose,
+  onCustomLabels,
+  onPresetLabels,
+  onSubmit,
+  onTarget,
+  onType,
+  presetLabels,
+  selectedCreativeName,
+  target,
+  type,
+}: {
+  customLabels: string;
+  onClose: () => void;
+  onCustomLabels: (labels: string) => void;
+  onPresetLabels: (labels: string[]) => void;
+  onSubmit: () => void;
+  onTarget: (target: AddVersionsTarget) => void;
+  onType: (type: MatrixNodeType) => void;
+  presetLabels: string[];
+  selectedCreativeName: string | null;
+  target: AddVersionsTarget;
+  type: MatrixNodeType;
+}) {
+  const addableTypes: MatrixNodeType[] = [
+    "duration",
+    "aspect_ratio",
+    "platform",
+    "technical_variant",
+    "output_format",
+  ];
+  const presets = presetValues[type];
+
+  function togglePreset(label: string) {
+    if (presetLabels.includes(label)) {
+      onPresetLabels(presetLabels.filter((item) => item !== label));
+    } else {
+      onPresetLabels([...presetLabels, label]);
+    }
+  }
+
+  return (
+    <Modal onClose={onClose} title="Add versions">
+      <div className="grid gap-4">
+        <label className="dt-field">
+          Version type
+          <select
+            className="dt-input"
+            onChange={(event) => onType(event.target.value as MatrixNodeType)}
+            value={type}
+          >
+            {addableTypes.map((item) => (
+              <option key={item} value={item}>
+                {nodeTypeLabels[item]}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <div>
+          <div className="dt-eyebrow mb-2">Presets</div>
+          <div className="flex flex-wrap gap-2">
+            {presets.map((label) => (
+              <label
+                className="inline-flex cursor-pointer items-center gap-2 rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--bg-app)] px-2 py-1 text-sm"
+                key={label}
+              >
+                <input
+                  checked={presetLabels.includes(label)}
+                  onChange={() => togglePreset(label)}
+                  type="checkbox"
+                />
+                <span className="mono">{label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <label className="dt-field">
+          Custom values one per line
+          <textarea
+            className="dt-input min-h-20 mono"
+            onChange={(event) => onCustomLabels(event.target.value)}
+            placeholder={type === "duration" ? ":20\n:45" : "Custom"}
+            value={customLabels}
+          />
+        </label>
+
+        <div>
+          <div className="dt-eyebrow mb-2">Apply to</div>
+          <div className="grid gap-2">
+            <label className="flex items-center gap-2 text-sm text-[var(--ink-2)]">
+              <input
+                checked={target === "selected"}
+                disabled={!selectedCreativeName}
+                onChange={() => onTarget("selected")}
+                type="radio"
+              />
+              Selected creative unit
+              {selectedCreativeName ? (
+                <span className="dt-chip">{selectedCreativeName}</span>
+              ) : (
+                <span className="text-[var(--ink-4)]">select a row first</span>
+              )}
+            </label>
+            <label className="flex items-center gap-2 text-sm text-[var(--ink-2)]">
+              <input
+                checked={target === "all"}
+                onChange={() => onTarget("all")}
+                type="radio"
+              />
+              All creative units
+            </label>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <button className="dt-btn" onClick={onClose} type="button">
+            Cancel
+          </button>
+          <button className="dt-btn primary" onClick={onSubmit} type="button">
+            Add versions
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function flattenRows(nodes: DeliverableNode[], openIds: Set<string>) {
   const rows: VisibleRow[] = [];
 
@@ -1016,6 +1212,165 @@ function getInitialOpenIds(nodes: DeliverableNode[]) {
   nodes.forEach((node) => walk(node, 0));
 
   return ids;
+}
+
+function collectOpenIdsForType(
+  nodes: DeliverableNode[],
+  _nodeType: MatrixNodeType,
+  ids: Set<string>,
+) {
+  nodes.forEach((node) => {
+    if (node.children?.length) {
+      ids.add(node.id);
+      collectOpenIdsForType(node.children, _nodeType, ids);
+    }
+  });
+}
+
+function addVersionNodes(
+  nodes: DeliverableNode[],
+  options: {
+    autoApplyOutputFormats: boolean;
+    defaultOutputFormats: string[];
+    labels: string[];
+    selectedCreativeId: string | null;
+    target: AddVersionsTarget;
+    type: MatrixNodeType;
+  },
+): DeliverableNode[] {
+  return nodes.map((node) => {
+    const inScope =
+      options.target === "all" ||
+      node.id === options.selectedCreativeId ||
+      containsNode(node.children ?? [], options.selectedCreativeId);
+    const shouldAddHere = inScope && canAddVersionToParent(node.nodeType, options.type);
+    const existingChildren = node.children ?? [];
+    const addedChildren = shouldAddHere
+      ? options.labels
+          .filter(
+            (label) =>
+              !existingChildren.some(
+                (child) => child.nodeType === options.type && child.label === label,
+              ),
+          )
+          .map((label) =>
+            createVersionNode(
+              options.type,
+              label,
+              options.defaultOutputFormats,
+              options.autoApplyOutputFormats,
+            ),
+          )
+      : [];
+
+    return {
+      ...node,
+      children: [
+        ...existingChildren.map((child) =>
+          addVersionNodes([child], options)[0],
+        ),
+        ...addedChildren,
+      ],
+    };
+  });
+}
+
+function createVersionNode(
+  type: MatrixNodeType,
+  label: string,
+  defaultOutputFormats: string[],
+  autoApplyOutputFormats: boolean,
+) {
+  const shouldAttachOutputs =
+    autoApplyOutputFormats &&
+    ["aspect_ratio", "platform", "technical_variant"].includes(type);
+  const children = shouldAttachOutputs
+    ? defaultOutputFormats.map((format) => createNode("output_format", format))
+    : [];
+
+  return createNode(type, label, children);
+}
+
+function canAddVersionToParent(
+  parentType: MatrixNodeType,
+  childType: MatrixNodeType,
+) {
+  if (childType === "duration") {
+    return parentType === "creative_unit";
+  }
+  if (childType === "aspect_ratio") {
+    return parentType === "duration";
+  }
+  if (childType === "platform") {
+    return parentType === "aspect_ratio";
+  }
+  if (childType === "technical_variant") {
+    return parentType === "aspect_ratio" || parentType === "platform";
+  }
+  if (childType === "output_format") {
+    return (
+      parentType === "aspect_ratio" ||
+      parentType === "platform" ||
+      parentType === "technical_variant"
+    );
+  }
+
+  return false;
+}
+
+function containsNode(nodes: DeliverableNode[], nodeId: string | null): boolean {
+  if (!nodeId) {
+    return false;
+  }
+
+  return nodes.some(
+    (node) => node.id === nodeId || containsNode(node.children ?? [], nodeId),
+  );
+}
+
+function findAncestorId(
+  nodes: DeliverableNode[],
+  nodeId: string,
+  ancestorType: MatrixNodeType,
+) {
+  const result = findAncestor(nodes, nodeId, ancestorType);
+  return result?.id ?? null;
+}
+
+function findAncestorLabel(
+  nodes: DeliverableNode[],
+  nodeId: string,
+  ancestorType: MatrixNodeType,
+) {
+  const result = findAncestor(nodes, nodeId, ancestorType);
+  return result?.label ?? null;
+}
+
+function findAncestor(
+  nodes: DeliverableNode[],
+  nodeId: string,
+  ancestorType: MatrixNodeType,
+  ancestors: DeliverableNode[] = [],
+): DeliverableNode | null {
+  for (const node of nodes) {
+    if (node.id === nodeId) {
+      return [...ancestors, node]
+        .reverse()
+        .find((ancestor) => ancestor.nodeType === ancestorType) ?? null;
+    }
+
+    const result = findAncestor(
+      node.children ?? [],
+      nodeId,
+      ancestorType,
+      [...ancestors, node],
+    );
+    if (result) {
+      return result;
+    }
+  }
+
+  return null;
 }
 
 function findNode(nodes: DeliverableNode[], nodeId: string): DeliverableNode | null {

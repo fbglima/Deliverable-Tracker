@@ -66,6 +66,8 @@ export function createDefaultTree(): DeliverableTree {
     version: 1,
     hierarchy: defaultHierarchy,
     optionalLevels,
+    defaultOutputFormats: ["H264 MP4", "ProRes MOV"],
+    autoApplyOutputFormats: true,
     nodes: [
       createNode("creative_unit", "Creative Unit 01", [
         createNode("duration", ":30", [
