@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { signIn, signUp } from "@/app/auth-actions";
+import { AuthPanel } from "@/app/login/auth-panel";
 import { hasSupabaseConfig } from "@/lib/supabase/config";
 import { getCurrentUser } from "@/lib/supabase/server";
 
@@ -49,67 +49,7 @@ export default async function LoginPage({
           </p>
         </section>
 
-        <section className="dt-panel w-full max-w-md p-6">
-          <h2 className="text-xl font-semibold">Sign in</h2>
-          <p className="dt-sub mt-2">
-            Use Supabase email/password auth for the MVP.
-          </p>
-
-          {params.message ? (
-            <div className="mt-4 rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--accent-tint)] px-3 py-2 text-sm text-[var(--accent-ink)]">
-              {params.message}
-            </div>
-          ) : null}
-
-          <form action={signIn} className="mt-6 grid gap-3">
-            <label className="dt-field">
-              Email
-              <input
-                className="dt-input"
-                name="email"
-                type="email"
-                required
-              />
-            </label>
-            <label className="dt-field">
-              Password
-              <input
-                className="dt-input"
-                name="password"
-                type="password"
-                required
-                minLength={6}
-              />
-            </label>
-            <button className="dt-btn primary mt-2 justify-center">
-              Sign in
-            </button>
-          </form>
-
-          <form action={signUp} className="mt-5 border-t border-[var(--line)] pt-5">
-            <h3 className="text-sm font-semibold">Create account</h3>
-            <div className="mt-3 grid gap-3">
-              <input
-                className="dt-input"
-                name="email"
-                type="email"
-                placeholder="producer@example.com"
-                required
-              />
-              <input
-                className="dt-input"
-                name="password"
-                type="password"
-                placeholder="Password"
-                required
-                minLength={6}
-              />
-              <button className="dt-btn justify-center">
-                Sign up
-              </button>
-            </div>
-          </form>
-        </section>
+        <AuthPanel message={params.message} />
       </div>
     </main>
   );

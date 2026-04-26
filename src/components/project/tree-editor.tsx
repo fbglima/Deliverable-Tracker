@@ -120,9 +120,9 @@ export function TreeEditor({
 
     return rows.filter((row) => row.pathText.toLowerCase().includes(query));
   }, [rows, search]);
-  const projectTitle = [project.client_name, project.campaign_name]
+  const projectTitle = [project.client_name, project.name]
     .filter(Boolean)
-    .join(" ") || project.name;
+    .join(" · ");
 
   function commitTree(nextTree: DeliverableTree) {
     setTree(nextTree);

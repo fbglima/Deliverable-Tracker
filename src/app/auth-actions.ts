@@ -31,13 +31,17 @@ export async function signUp(formData: FormData) {
   const password = value(formData, "password");
   const supabase = await createClient();
 
-  const { error } = await supabase.auth.signUp({ email, password });
+  const { data, error } = await supabase.auth.signUp({ email, password });
 
   if (error) {
     loginRedirect(error.message);
   }
 
-  redirect("/workspaces");
+  if (data.session) {
+    redirect("/workspaces");
+  }
+
+  loginRedirect("Account created. Check your email to confirm your address, then sign in.");
 }
 
 export async function signOut() {

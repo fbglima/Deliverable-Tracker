@@ -67,9 +67,7 @@ export default async function WorkspacePage({
                       <div>
                         <h3 className="font-semibold">{project.name}</h3>
                         <p className="dt-sub mt-1">
-                          {[project.client_name, project.campaign_name]
-                            .filter(Boolean)
-                            .join(" / ") || "No client or campaign label yet"}
+                          {project.client_name || "No client label yet"}
                         </p>
                       </div>
                       <span className="mono text-xs font-semibold text-[var(--accent-ink)]">
@@ -96,7 +94,7 @@ export default async function WorkspacePage({
             </div>
             <div className="mt-4 grid gap-3">
               <label className="dt-field">
-                Project / Campaign
+                Project / Campaign name
                 <input
                   className="dt-input"
                   name="name"
@@ -105,17 +103,10 @@ export default async function WorkspacePage({
                 />
               </label>
               <label className="dt-field">
-                Client name
+                Client name optional
                 <input
                   className="dt-input"
                   name="client_name"
-                />
-              </label>
-              <label className="dt-field">
-                Campaign name
-                <input
-                  className="dt-input"
-                  name="campaign_name"
                 />
               </label>
               <label className="dt-field">

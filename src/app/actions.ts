@@ -56,7 +56,6 @@ export async function createProject(workspaceId: string, formData: FormData) {
   const { supabase, user } = await requireUser();
   const name = formValue(formData, "name");
   const clientName = formValue(formData, "client_name") || null;
-  const campaignName = formValue(formData, "campaign_name") || null;
   const description = formValue(formData, "description") || null;
 
   if (!name) {
@@ -80,7 +79,7 @@ export async function createProject(workspaceId: string, formData: FormData) {
       workspace_id: workspaceId,
       name,
       client_name: clientName,
-      campaign_name: campaignName,
+      campaign_name: null,
       description,
       tree_json: createDefaultTree(),
       created_by: user.id,
