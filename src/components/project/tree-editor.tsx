@@ -117,6 +117,14 @@ type AiApplyDraft = {
   target: "all_creative_units" | "suggested_path";
 };
 
+type AiApplyPlan = {
+  blockedReason: string | null;
+  changeCount: number;
+  labels: string[];
+  previewTargets: string[];
+  targetCount: number;
+};
+
 const densityVars: Record<Density, CSSProperties> = {
   compact: {
     "--row-h": "30px",
@@ -572,39 +580,26 @@ export function TreeEditor({
   }
 
   function acceptAiSuggestion(suggestion: AiSuggestion, draft: AiApplyDraft) {
-    const labels = parseDraftLabels(draft.labelsText);
-    const suggestionPaths = buildAiApplyPaths(tree.nodes, suggestion, draft);
-    const nextNodes =
-      draft.target === "all_creative_units" && draft.nodeType !== "creative_unit"
-        ? addVersionNodes(tree.nodes, {
-            autoApplyOutputFormats,
-            defaultOutputFormats,
-            enabledForkTypes,
-            labels,
-            selectedNodeId: null,
-            target: "all",
-            type: draft.nodeType,
-          })
-        : suggestionPaths.reduce<DeliverableNode[]>(
-            (nodes, path) =>
-              addSuggestionPath(nodes, path, {
-                autoApplyOutputFormats,
-                defaultOutputFormats,
-              }),
-            tree.nodes,
-          );
+    const result = applyAiSuggestionDraft(tree.nodes, suggestion, draft, {
+      autoApplyOutputFormats,
+      defaultOutputFormats,
+      enabledForkTypes,
+    });
 
-    commitTree({ ...tree, nodes: nextNodes });
+    if (!result.applied) {
+      setStatus(result.message);
+      return;
+    }
+
+    commitTree({ ...tree, nodes: result.nodes });
     setOpenIds((current) => {
       const next = new Set(current);
-      if (
-        draft.target === "all_creative_units" &&
-        draft.nodeType !== "creative_unit"
-      ) {
-        collectOpenIdsForType(nextNodes, draft.nodeType, next);
-      } else {
-        suggestionPaths.forEach((path) => collectOpenIdsForPath(nextNodes, path, next));
-      }
+
+      result.openNodeTypes.forEach((nodeType) =>
+        collectOpenIdsForType(result.nodes, nodeType, next),
+      );
+      result.openPaths.forEach((path) => collectOpenIdsForPath(result.nodes, path, next));
+
       return next;
     });
     setAcceptedAiSuggestionIds((current) => new Set(current).add(suggestion.id));
@@ -613,7 +608,7 @@ export function TreeEditor({
       next.delete(suggestion.id);
       return next;
     });
-    setStatus("AI suggestion applied locally. Save when ready.");
+    setStatus(result.message);
   }
 
   function rejectAiSuggestion(suggestionId: string) {
@@ -753,6 +748,7 @@ export function TreeEditor({
             {showAiAssistant ? (
               <AiAssistantPanel
                 acceptedSuggestionIds={acceptedAiSuggestionIds}
+                enabledForkTypes={enabledForkTypes}
                 inputText={aiInputText}
                 isAnalyzing={isAnalyzingIntake}
                 onAccept={acceptAiSuggestion}
@@ -763,6 +759,7 @@ export function TreeEditor({
                 rejectedSuggestionIds={rejectedAiSuggestionIds}
                 result={aiResult}
                 status={aiStatus}
+                tree={tree}
               />
             ) : null}
           </div>
@@ -1986,6 +1983,7 @@ function SnapshotPanel({
 
 function AiAssistantPanel({
   acceptedSuggestionIds,
+  enabledForkTypes,
   inputText,
   isAnalyzing,
   onAccept,
@@ -1996,8 +1994,10 @@ function AiAssistantPanel({
   rejectedSuggestionIds,
   result,
   status,
+  tree,
 }: {
   acceptedSuggestionIds: Set<string>;
+  enabledForkTypes: MatrixNodeType[];
   inputText: string;
   isAnalyzing: boolean;
   onAccept: (suggestion: AiSuggestion, draft: AiApplyDraft) => void;
@@ -2008,6 +2008,7 @@ function AiAssistantPanel({
   rejectedSuggestionIds: Set<string>;
   result: AiIntakeResult | null;
   status: string;
+  tree: DeliverableTree;
 }) {
   const resultRef = useRef<HTMLDivElement>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -2105,10 +2106,12 @@ function AiAssistantPanel({
                   </div>
                   <SuggestionList
                     acceptedSuggestionIds={acceptedSuggestionIds}
+                    enabledForkTypes={enabledForkTypes}
                     onAccept={onAccept}
                     onReject={onReject}
                     rejectedSuggestionIds={rejectedSuggestionIds}
                     suggestions={result.additions}
+                    tree={tree}
                   />
                   <AiNotes title="Possible changes/removals" notes={result.removalsOrChanges} />
                   <AiNotes title="Assumptions" notes={result.assumptions} />
@@ -2132,16 +2135,20 @@ function AiAssistantPanel({
 
 function SuggestionList({
   acceptedSuggestionIds,
+  enabledForkTypes,
   onAccept,
   onReject,
   rejectedSuggestionIds,
   suggestions,
+  tree,
 }: {
   acceptedSuggestionIds: Set<string>;
+  enabledForkTypes: MatrixNodeType[];
   onAccept: (suggestion: AiSuggestion, draft: AiApplyDraft) => void;
   onReject: (suggestionId: string) => void;
   rejectedSuggestionIds: Set<string>;
   suggestions: AiSuggestion[];
+  tree: DeliverableTree;
 }) {
   const [expandedSuggestionIds, setExpandedSuggestionIds] = useState<Set<string>>(
     () => new Set(),
@@ -2221,7 +2228,14 @@ function SuggestionList({
             const expanded = expandedSuggestionIds.has(suggestion.id);
             const done = accepted || rejected;
             const draft = draftForSuggestion(suggestion);
-            const draftCount = parseDraftLabels(draft.labelsText).length;
+            const plan = resolveAiApplyPlan(
+              tree.nodes,
+              suggestion,
+              draft,
+              enabledForkTypes,
+            );
+            const draftCount = plan.labels.length;
+            const canAccept = !done && !plan.blockedReason;
 
             return (
               <div
@@ -2300,14 +2314,18 @@ function SuggestionList({
                     </label>
                   </div>
                   <p className="mt-2 text-[11px] leading-5 text-[var(--ink-3)]">
-                    Add {draftCount || 0} {getNodeTypeLabel(draft.nodeType, "Creative Unit")}
-                    {draftCount === 1 ? "" : "s"} to{" "}
-                    {draft.target === "all_creative_units" &&
-                    draft.nodeType !== "creative_unit"
-                      ? "all current top-level items"
-                      : "the suggested path"}
-                    .
+                    {plan.blockedReason ??
+                      `Add ${draftCount} ${getNodeTypeLabel(draft.nodeType, "Creative Unit")}${draftCount === 1 ? "" : "s"} across ${plan.targetCount} target branch${plan.targetCount === 1 ? "" : "es"}.`}
                   </p>
+                  {plan.previewTargets.length ? (
+                    <div className="mono mt-2 grid gap-1 text-[10px] leading-4 text-[var(--ink-3)]">
+                      {plan.previewTargets.map((target) => (
+                        <span className="truncate" key={target}>
+                          {target}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 {expanded ? (
                   <div className="mt-3 rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--bg-subtle)] p-2">
@@ -2351,7 +2369,7 @@ function SuggestionList({
                   </button>
                   <button
                     className="dt-btn primary"
-                    disabled={accepted || rejected || draftCount === 0}
+                    disabled={!canAccept}
                     onClick={() => onAccept(suggestion, draft)}
                     type="button"
                   >
@@ -4546,97 +4564,336 @@ function defaultOutputChildren(options: {
       : [];
 }
 
-function addSuggestionPath(
+function applyAiSuggestionDraft(
   nodes: DeliverableNode[],
-  path: AiSuggestion["path"],
+  suggestion: AiSuggestion,
+  draft: AiApplyDraft,
   options: {
     autoApplyOutputFormats: boolean;
     defaultOutputFormats: string[];
+    enabledForkTypes: MatrixNodeType[];
   },
-) {
-  const cleanPath = path.filter((item) => item.label.trim());
+): {
+  applied: boolean;
+  message: string;
+  nodes: DeliverableNode[];
+  openNodeTypes: MatrixNodeType[];
+  openPaths: AiSuggestion["path"][];
+} {
+  const plan = resolveAiApplyPlan(
+    nodes,
+    suggestion,
+    draft,
+    options.enabledForkTypes,
+  );
 
-  if (!cleanPath.length) {
-    return nodes;
+  if (plan.blockedReason) {
+    return {
+      applied: false,
+      message: plan.blockedReason,
+      nodes,
+      openNodeTypes: [],
+      openPaths: [],
+    };
   }
 
-  function addAtDepth(currentNodes: DeliverableNode[], depth: number): DeliverableNode[] {
-    const item = cleanPath[depth];
-    const existingIndex = currentNodes.findIndex(
-      (node) =>
-        node.nodeType === item.nodeType &&
-        node.label.toLowerCase() === item.label.trim().toLowerCase(),
+  let nextNodes = nodes;
+  const openPaths: AiSuggestion["path"][] = [];
+
+  if (draft.nodeType === "creative_unit") {
+    const existingLabels = new Set(
+      nodes
+        .filter((node) => node.nodeType === "creative_unit")
+        .map((node) => normalizeAiLabel(node.label)),
     );
 
-    if (existingIndex >= 0) {
-      return currentNodes.map((node, index) => {
-        if (index !== existingIndex) {
-          return node;
-        }
-
-        return {
-          ...node,
-          children:
-            depth === cleanPath.length - 1
-              ? node.children
-              : addAtDepth(node.children ?? [], depth + 1),
-        };
-      });
-    }
-
-    const newNode = createNode(
-      item.nodeType,
-      item.label.trim(),
-      depth === cleanPath.length - 1
-        ? defaultChildrenForSuggestion(item.nodeType, options)
-        : addAtDepth([], depth + 1),
+    nextNodes = [
+      ...nodes,
+      ...plan.labels
+        .filter((label) => !existingLabels.has(normalizeAiLabel(label)))
+        .map((label) => createNode("creative_unit", label)),
+    ];
+    openPaths.push(
+      ...plan.labels.map((label) => [
+        { label, nodeType: "creative_unit" as const },
+      ]),
     );
+  } else if (draft.target === "all_creative_units") {
+    nextNodes = addVersionNodes(nodes, {
+      autoApplyOutputFormats: options.autoApplyOutputFormats,
+      defaultOutputFormats: options.defaultOutputFormats,
+      enabledForkTypes: options.enabledForkTypes,
+      labels: plan.labels,
+      selectedNodeId: null,
+      target: "all",
+      type: draft.nodeType,
+    });
+  } else {
+    const parentMatches = findSuggestedParentNodes(nodes, suggestion, draft);
 
-    return [...currentNodes, newNode];
+    nextNodes = parentMatches.reduce(
+      (currentNodes, parent) =>
+        addVersionNodes(currentNodes, {
+          autoApplyOutputFormats: options.autoApplyOutputFormats,
+          defaultOutputFormats: options.defaultOutputFormats,
+          enabledForkTypes: options.enabledForkTypes,
+          labels: plan.labels,
+          selectedNodeId: parent.node.id,
+          target: "selected",
+          type: draft.nodeType,
+        }),
+      nodes,
+    );
+    openPaths.push(
+      ...parentMatches.flatMap((parent) =>
+        plan.labels.map((label) => [
+          ...parent.path.map((node) => ({
+            label: node.label,
+            nodeType: node.nodeType,
+          })),
+          { label, nodeType: draft.nodeType },
+        ]),
+      ),
+    );
   }
 
-  return addAtDepth(nodes, 0);
+  if (JSON.stringify(nodes) === JSON.stringify(nextNodes)) {
+    return {
+      applied: false,
+      message: "No matrix changes were applied. The target branches may already contain these values.",
+      nodes,
+      openNodeTypes: [],
+      openPaths: [],
+    };
+  }
+
+  return {
+    applied: true,
+    message: `AI suggestion applied to ${plan.changeCount} target branch${plan.changeCount === 1 ? "" : "es"}. Save when ready.`,
+    nodes: nextNodes,
+    openNodeTypes: [draft.nodeType],
+    openPaths,
+  };
 }
 
-function buildAiApplyPaths(
+function resolveAiApplyPlan(
+  nodes: DeliverableNode[],
+  suggestion: AiSuggestion,
+  draft: AiApplyDraft,
+  enabledForkTypes: MatrixNodeType[],
+): AiApplyPlan {
+  const labels = parseDraftLabels(draft.labelsText);
+
+  if (!labels.length) {
+    return {
+      blockedReason: "Add at least one value before accepting this suggestion.",
+      changeCount: 0,
+      labels,
+      previewTargets: [],
+      targetCount: 0,
+    };
+  }
+
+  if (draft.nodeType === "creative_unit") {
+    const existingLabels = new Set(
+      nodes
+        .filter((node) => node.nodeType === "creative_unit")
+        .map((node) => normalizeAiLabel(node.label)),
+    );
+    const changeCount = labels.filter(
+      (label) => !existingLabels.has(normalizeAiLabel(label)),
+    ).length;
+
+    return {
+      blockedReason:
+        changeCount > 0
+          ? null
+          : "These top-level items already exist in the matrix.",
+      changeCount,
+      labels,
+      previewTargets: ["Project root"],
+      targetCount: 1,
+    };
+  }
+
+  const selectedParentIds =
+    draft.target === "suggested_path"
+      ? findSuggestedParentNodes(nodes, suggestion, draft).map(
+          (match) => match.node.id,
+        )
+      : null;
+
+  if (draft.target === "suggested_path" && !selectedParentIds?.length) {
+    return {
+      blockedReason:
+        "No matching parent branch was found for the suggested path. Add the parent branch first or switch the target.",
+      changeCount: 0,
+      labels,
+      previewTargets: [],
+      targetCount: 0,
+    };
+  }
+
+  const targets = collectAiVersionTargets(
+    nodes,
+    draft.nodeType,
+    enabledForkTypes,
+    selectedParentIds,
+  );
+  const changeCount = targets.filter((target) =>
+    targetWouldChange(target.node, draft.nodeType, labels),
+  ).length;
+
+  return {
+    blockedReason:
+      targets.length === 0
+        ? "No matching target branches found for this version type."
+        : changeCount === 0
+          ? "These values already exist on all matching target branches."
+          : null,
+    changeCount,
+    labels,
+    previewTargets: targets.slice(0, 4).map((target) =>
+      target.path.map((node) => node.label).join(" → "),
+    ),
+    targetCount: targets.length,
+  };
+}
+
+function collectAiVersionTargets(
+  nodes: DeliverableNode[],
+  nodeType: MatrixNodeType,
+  enabledForkTypes: MatrixNodeType[],
+  selectedParentIds: string[] | null,
+) {
+  const targets: Array<{ node: DeliverableNode; path: DeliverableNode[] }> = [];
+  const selectedIdSet = selectedParentIds ? new Set(selectedParentIds) : null;
+
+  function walk(
+    node: DeliverableNode,
+    path: DeliverableNode[],
+    insideSelectedBranch: boolean,
+  ) {
+    const nextPath = [...path, node];
+    const nextInsideSelectedBranch =
+      insideSelectedBranch || Boolean(selectedIdSet?.has(node.id));
+    const inScope = selectedIdSet ? nextInsideSelectedBranch : true;
+
+    if (
+      inScope &&
+      shouldAddVersionToParent(node, nodeType, enabledForkTypes)
+    ) {
+      targets.push({ node, path: nextPath });
+    }
+
+    node.children?.forEach((child) =>
+      walk(child, nextPath, nextInsideSelectedBranch),
+    );
+  }
+
+  nodes.forEach((node) => walk(node, [], false));
+
+  return targets;
+}
+
+function targetWouldChange(
+  target: DeliverableNode,
+  nodeType: MatrixNodeType,
+  labels: string[],
+) {
+  const children = target.children ?? [];
+  const existingLabels = new Set(
+    children
+      .filter((child) => child.nodeType === nodeType)
+      .map((child) => normalizeAiLabel(child.label)),
+  );
+
+  if (nodeType === "technical_variant") {
+    const hasDirectOutput = children.some(
+      (child) => child.nodeType === "output_format",
+    );
+
+    return labels.some((label) => {
+      const normalizedLabel = normalizeAiLabel(label);
+
+      return (
+        !existingLabels.has(normalizedLabel) ||
+        (normalizedLabel === normalizeAiLabel(technicalStandardLabel) &&
+          hasDirectOutput)
+      );
+    });
+  }
+
+  return labels.some((label) => !existingLabels.has(normalizeAiLabel(label)));
+}
+
+function findSuggestedParentNodes(
   nodes: DeliverableNode[],
   suggestion: AiSuggestion,
   draft: AiApplyDraft,
 ) {
-  const labels = parseDraftLabels(draft.labelsText);
-  const cleanPath = suggestion.path.filter((item) => item.label.trim());
+  const parentPath = getSuggestedParentPath(suggestion, draft.nodeType);
 
-  if (!labels.length) {
+  if (!parentPath.length) {
     return [];
   }
 
-  if (draft.nodeType === "creative_unit") {
-    return labels.map((label) => [
-      { label, nodeType: "creative_unit" as const },
-    ]);
+  return findMatchingAiPaths(nodes, parentPath);
+}
+
+function getSuggestedParentPath(
+  suggestion: AiSuggestion,
+  nodeType: MatrixNodeType,
+) {
+  const cleanPath = suggestion.path.filter((item) => item.label.trim());
+  const nodeRank = allNodeTypes.indexOf(nodeType);
+  const firstChildIndex = cleanPath.findIndex((item) => {
+    const itemRank = allNodeTypes.indexOf(item.nodeType);
+
+    return itemRank >= nodeRank;
+  });
+
+  return firstChildIndex >= 0 ? cleanPath.slice(0, firstChildIndex) : cleanPath;
+}
+
+function findMatchingAiPaths(
+  nodes: DeliverableNode[],
+  path: AiSuggestion["path"],
+) {
+  const matches: Array<{ node: DeliverableNode; path: DeliverableNode[] }> = [];
+
+  function walk(
+    currentNodes: DeliverableNode[],
+    depth: number,
+    currentPath: DeliverableNode[],
+  ) {
+    const item = path[depth];
+
+    if (!item) {
+      const node = currentPath[currentPath.length - 1];
+
+      if (node) {
+        matches.push({ node, path: currentPath });
+      }
+      return;
+    }
+
+    currentNodes
+      .filter(
+        (node) =>
+          node.nodeType === item.nodeType &&
+          normalizeAiLabel(node.label) === normalizeAiLabel(item.label),
+      )
+      .forEach((node) => walk(node.children ?? [], depth + 1, [...currentPath, node]));
   }
 
-  if (draft.target === "all_creative_units") {
-    const creativeUnits = nodes.filter((node) => node.nodeType === "creative_unit");
+  walk(nodes, 0, []);
 
-    return creativeUnits.flatMap((unit) =>
-      labels.map((label) => [
-        { label: unit.label, nodeType: "creative_unit" as const },
-        { label, nodeType: draft.nodeType },
-      ]),
-    );
-  }
+  return matches;
+}
 
-  const parentPath = cleanPath.filter((item) => item.nodeType !== draft.nodeType);
-  const fallbackParentPath =
-    parentPath.length || cleanPath[0]?.nodeType === "creative_unit"
-      ? parentPath
-      : cleanPath.slice(0, -1);
-
-  return labels.map((label) => [
-    ...fallbackParentPath,
-    { label, nodeType: draft.nodeType },
-  ]);
+function normalizeAiLabel(value: string) {
+  return value.trim().toLowerCase();
 }
 
 function getInitialAiApplyDraft(suggestion: AiSuggestion): AiApplyDraft {
@@ -4674,27 +4931,6 @@ function suggestionHierarchyRank(suggestion: AiSuggestion) {
   const firstRank = Math.min(...ranks.filter((rank) => rank >= 0));
 
   return Number.isFinite(firstRank) ? firstRank : 999;
-}
-
-function defaultChildrenForSuggestion(
-  nodeType: MatrixNodeType,
-  options: {
-    autoApplyOutputFormats: boolean;
-    defaultOutputFormats: string[];
-  },
-) {
-  if (
-    !options.autoApplyOutputFormats ||
-    nodeType === "output_format" ||
-    nodeType === "creative_unit" ||
-    nodeType === "duration"
-  ) {
-    return [];
-  }
-
-  return options.defaultOutputFormats.map((format) =>
-    createNode("output_format", format),
-  );
 }
 
 function collectOpenIdsForPath(
