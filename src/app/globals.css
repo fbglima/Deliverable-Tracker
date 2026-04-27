@@ -413,6 +413,8 @@ select {
 .dt-input {
   min-height: 32px;
   box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-md);
   background: var(--bg-input);

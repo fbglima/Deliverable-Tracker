@@ -111,6 +111,12 @@ type ExportPath = {
   pathText: string;
 };
 
+type AiApplyDraft = {
+  labelsText: string;
+  nodeType: MatrixNodeType;
+  target: "all_creative_units" | "suggested_path";
+};
+
 const densityVars: Record<Density, CSSProperties> = {
   compact: {
     "--row-h": "30px",
@@ -557,21 +563,40 @@ export function TreeEditor({
     }
   }
 
-  function acceptAiSuggestion(suggestion: AiSuggestion) {
-    const suggestionPaths = expandSuggestionPaths(tree.nodes, suggestion.path);
-    const nextNodes = suggestionPaths.reduce<DeliverableNode[]>(
-      (nodes, path) =>
-        addSuggestionPath(nodes, path, {
-          autoApplyOutputFormats,
-          defaultOutputFormats,
-        }),
-      tree.nodes,
-    );
+  function acceptAiSuggestion(suggestion: AiSuggestion, draft: AiApplyDraft) {
+    const labels = parseDraftLabels(draft.labelsText);
+    const suggestionPaths = buildAiApplyPaths(tree.nodes, suggestion, draft);
+    const nextNodes =
+      draft.target === "all_creative_units" && draft.nodeType !== "creative_unit"
+        ? addVersionNodes(tree.nodes, {
+            autoApplyOutputFormats,
+            defaultOutputFormats,
+            enabledForkTypes,
+            labels,
+            selectedNodeId: null,
+            target: "all",
+            type: draft.nodeType,
+          })
+        : suggestionPaths.reduce<DeliverableNode[]>(
+            (nodes, path) =>
+              addSuggestionPath(nodes, path, {
+                autoApplyOutputFormats,
+                defaultOutputFormats,
+              }),
+            tree.nodes,
+          );
 
     commitTree({ ...tree, nodes: nextNodes });
     setOpenIds((current) => {
       const next = new Set(current);
-      suggestionPaths.forEach((path) => collectOpenIdsForPath(nextNodes, path, next));
+      if (
+        draft.target === "all_creative_units" &&
+        draft.nodeType !== "creative_unit"
+      ) {
+        collectOpenIdsForType(nextNodes, draft.nodeType, next);
+      } else {
+        suggestionPaths.forEach((path) => collectOpenIdsForPath(nextNodes, path, next));
+      }
       return next;
     });
     setAcceptedAiSuggestionIds((current) => new Set(current).add(suggestion.id));
@@ -659,13 +684,13 @@ export function TreeEditor({
                 >
                   <Plus className="h-3.5 w-3.5" /> Add versions
                 </button>
-                <button
-                  className="dt-btn primary"
-                  onClick={() => setShowCreativeUnitModal(true)}
-                  type="button"
-                >
-                  <Plus className="h-3.5 w-3.5" /> Add creative unit
-                </button>
+              <button
+                className="dt-btn primary"
+                onClick={() => setShowCreativeUnitModal(true)}
+                type="button"
+              >
+                  <Plus className="h-3.5 w-3.5" /> Add {creativeUnitLabel}
+              </button>
               </div>
             </div>
             {viewMode === "rows" ? (
@@ -1551,6 +1576,9 @@ function ProjectSettingsPanel({
     "16x9",
   ]);
   const [customPreviewText, setCustomPreviewText] = useState("");
+  const [draggingPreviewIndex, setDraggingPreviewIndex] = useState<number | null>(
+    null,
+  );
   const options = Array.from(
     new Set([...baseFormats, ...formats.map(normalizeOutputFormatLabel)]),
   );
@@ -1578,17 +1606,15 @@ function ProjectSettingsPanel({
     onForkTypesChange(sortForkTypes(nextForkTypes));
   }
 
-  function movePreviewPart(index: number, direction: -1 | 1) {
-    const targetIndex = index + direction;
-
-    if (targetIndex < 0 || targetIndex >= previewParts.length) {
+  function movePreviewPartTo(fromIndex: number, toIndex: number) {
+    if (fromIndex === toIndex) {
       return;
     }
 
     setPreviewParts((current) => {
       const next = [...current];
-      const [item] = next.splice(index, 1);
-      next.splice(targetIndex, 0, item);
+      const [item] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, item);
       return next;
     });
   }
@@ -1605,7 +1631,7 @@ function ProjectSettingsPanel({
   }
 
   return (
-    <section className="dt-panel p-4">
+    <section className="dt-panel overflow-hidden p-4">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold">Project setup</h2>
         <button
@@ -1670,7 +1696,7 @@ function ProjectSettingsPanel({
           </div>
           <div className="mt-3 flex gap-2">
             <input
-              className="dt-input min-w-0 flex-1 py-1 text-xs"
+              className="dt-input h-8 min-w-0 flex-1 py-1 text-xs"
               onChange={(event) => setCustomFormat(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
@@ -1710,7 +1736,7 @@ function ProjectSettingsPanel({
               <label className="dt-field">
                 Separator
                 <select
-                  className="dt-input w-full min-w-0"
+                  className="dt-input h-8 w-full min-w-0 max-w-full truncate py-1 text-xs"
                   onChange={(event) =>
                     onFilenameChange(
                       filenameCase,
@@ -1727,7 +1753,7 @@ function ProjectSettingsPanel({
               <label className="dt-field">
                 Case
                 <select
-                  className="dt-input w-full min-w-0"
+                  className="dt-input h-8 w-full min-w-0 max-w-full truncate py-1 text-xs"
                   onChange={(event) =>
                     onFilenameChange(
                       event.target.value as FilenameCase,
@@ -1755,32 +1781,30 @@ function ProjectSettingsPanel({
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {previewParts.map((part, index) => (
                     <span
-                      className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--bg-panel)] px-2 py-1 text-[11px] text-[var(--ink-2)]"
+                      className={`inline-flex cursor-grab items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--bg-panel)] px-2 py-1 text-[11px] text-[var(--ink-2)] ${
+                        draggingPreviewIndex === index ? "opacity-45" : ""
+                      }`}
+                      draggable
                       key={`${part}-${index}`}
+                      onDragEnd={() => setDraggingPreviewIndex(null)}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDragStart={() => setDraggingPreviewIndex(index)}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        if (draggingPreviewIndex !== null) {
+                          movePreviewPartTo(draggingPreviewIndex, index);
+                        }
+                        setDraggingPreviewIndex(null);
+                      }}
                     >
+                      <span className="text-[var(--ink-4)]">⋮⋮</span>
                       <span className="mono">{part}</span>
-                      <button
-                        className="text-[var(--ink-4)] hover:text-[var(--ink-1)]"
-                        disabled={index === 0}
-                        onClick={() => movePreviewPart(index, -1)}
-                        type="button"
-                      >
-                        ←
-                      </button>
-                      <button
-                        className="text-[var(--ink-4)] hover:text-[var(--ink-1)]"
-                        disabled={index === previewParts.length - 1}
-                        onClick={() => movePreviewPart(index, 1)}
-                        type="button"
-                      >
-                        →
-                      </button>
                     </span>
                   ))}
                 </div>
                 <div className="mt-2 flex gap-2">
                   <input
-                    className="dt-input min-w-0 flex-1 py-1 text-xs"
+                    className="dt-input h-8 min-w-0 flex-1 py-1 text-xs"
                     onChange={(event) => setCustomPreviewText(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") {
@@ -1962,7 +1986,7 @@ function AiAssistantPanel({
   acceptedSuggestionIds: Set<string>;
   inputText: string;
   isAnalyzing: boolean;
-  onAccept: (suggestion: AiSuggestion) => void;
+  onAccept: (suggestion: AiSuggestion, draft: AiApplyDraft) => void;
   onAnalyze: () => void;
   onInputText: (value: string) => void;
   onReject: (suggestionId: string) => void;
@@ -2056,7 +2080,7 @@ function SuggestionList({
   suggestions,
 }: {
   acceptedSuggestionIds: Set<string>;
-  onAccept: (suggestion: AiSuggestion) => void;
+  onAccept: (suggestion: AiSuggestion, draft: AiApplyDraft) => void;
   onReject: (suggestionId: string) => void;
   rejectedSuggestionIds: Set<string>;
   suggestions: AiSuggestion[];
@@ -2064,6 +2088,7 @@ function SuggestionList({
   const [expandedSuggestionIds, setExpandedSuggestionIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [drafts, setDrafts] = useState<Record<string, AiApplyDraft>>({});
   const [copiedSuggestionId, setCopiedSuggestionId] = useState<string | null>(
     null,
   );
@@ -2100,6 +2125,31 @@ function SuggestionList({
     window.setTimeout(() => setCopiedSuggestionId(null), 1200);
   }
 
+  function draftForSuggestion(suggestion: AiSuggestion) {
+    return drafts[suggestion.id] ?? getInitialAiApplyDraft(suggestion);
+  }
+
+  function updateDraft(suggestionId: string, patch: Partial<AiApplyDraft>) {
+    setDrafts((current) => {
+      const suggestion = suggestions.find((item) => item.id === suggestionId);
+      const currentDraft =
+        current[suggestionId] ??
+        (suggestion ? getInitialAiApplyDraft(suggestion) : null);
+
+      if (!currentDraft) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [suggestionId]: {
+          ...currentDraft,
+          ...patch,
+        },
+      };
+    });
+  }
+
   return (
     <div>
       <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--ink-3)]">
@@ -2112,6 +2162,8 @@ function SuggestionList({
             const rejected = rejectedSuggestionIds.has(suggestion.id);
             const expanded = expandedSuggestionIds.has(suggestion.id);
             const done = accepted || rejected;
+            const draft = draftForSuggestion(suggestion);
+            const draftCount = parseDraftLabels(draft.labelsText).length;
 
             return (
               <div
@@ -2132,6 +2184,73 @@ function SuggestionList({
                 <p className="mono mt-2 break-words text-[10.5px] leading-5 text-[var(--ink-3)]">
                   {suggestion.path.map((item) => item.label).join(" → ")}
                 </p>
+                <div className="mt-3 rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--bg-subtle)] p-2">
+                  <div className="grid gap-2">
+                    <label className="dt-field text-[11px]">
+                      Add
+                      <select
+                        className="dt-input h-8 w-full min-w-0 py-1 text-xs"
+                        disabled={done}
+                        onChange={(event) =>
+                          updateDraft(suggestion.id, {
+                            nodeType: event.target.value as MatrixNodeType,
+                          })
+                        }
+                        value={draft.nodeType}
+                      >
+                        {allNodeTypes.map((type) => (
+                          <option key={type} value={type}>
+                            {nodeTypeLabels[type]}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="dt-field text-[11px]">
+                      Values
+                      <textarea
+                        className="dt-input min-h-16 w-full resize-y py-1 text-xs leading-5"
+                        disabled={done}
+                        onChange={(event) =>
+                          updateDraft(suggestion.id, {
+                            labelsText: event.target.value,
+                          })
+                        }
+                        value={draft.labelsText}
+                      />
+                    </label>
+                    <label className="dt-field text-[11px]">
+                      Apply to
+                      <select
+                        className="dt-input h-8 w-full min-w-0 py-1 text-xs"
+                        disabled={done || draft.nodeType === "creative_unit"}
+                        onChange={(event) =>
+                          updateDraft(suggestion.id, {
+                            target: event.target.value as AiApplyDraft["target"],
+                          })
+                        }
+                        value={
+                          draft.nodeType === "creative_unit"
+                            ? "suggested_path"
+                            : draft.target
+                        }
+                      >
+                        <option value="all_creative_units">
+                          All current top-level items
+                        </option>
+                        <option value="suggested_path">Suggested path only</option>
+                      </select>
+                    </label>
+                  </div>
+                  <p className="mt-2 text-[11px] leading-5 text-[var(--ink-3)]">
+                    Add {draftCount || 0} {getNodeTypeLabel(draft.nodeType, "Creative Unit")}
+                    {draftCount === 1 ? "" : "s"} to{" "}
+                    {draft.target === "all_creative_units" &&
+                    draft.nodeType !== "creative_unit"
+                      ? "all current top-level items"
+                      : "the suggested path"}
+                    .
+                  </p>
+                </div>
                 {expanded ? (
                   <div className="mt-3 rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--bg-subtle)] p-2">
                     <p className="text-xs font-medium text-[var(--ink-2)]">
@@ -2174,8 +2293,8 @@ function SuggestionList({
                   </button>
                   <button
                     className="dt-btn primary"
-                    disabled={accepted || rejected}
-                    onClick={() => onAccept(suggestion)}
+                    disabled={accepted || rejected || draftCount === 0}
+                    onClick={() => onAccept(suggestion, draft)}
                     type="button"
                   >
                     {accepted ? "Accepted" : "Accept"}
@@ -4099,26 +4218,71 @@ function addSuggestionPath(
   return addAtDepth(nodes, 0);
 }
 
-function expandSuggestionPaths(
+function buildAiApplyPaths(
   nodes: DeliverableNode[],
-  path: AiSuggestion["path"],
+  suggestion: AiSuggestion,
+  draft: AiApplyDraft,
 ) {
-  const cleanPath = path.filter((item) => item.label.trim());
+  const labels = parseDraftLabels(draft.labelsText);
+  const cleanPath = suggestion.path.filter((item) => item.label.trim());
 
-  if (!cleanPath.length || cleanPath[0]?.nodeType === "creative_unit") {
-    return [cleanPath];
+  if (!labels.length) {
+    return [];
   }
 
-  const creativeUnits = nodes.filter((node) => node.nodeType === "creative_unit");
-
-  if (!creativeUnits.length) {
-    return [cleanPath];
+  if (draft.nodeType === "creative_unit") {
+    return labels.map((label) => [
+      { label, nodeType: "creative_unit" as const },
+    ]);
   }
 
-  return creativeUnits.map((unit) => [
-    { label: unit.label, nodeType: "creative_unit" as const },
-    ...cleanPath,
+  if (draft.target === "all_creative_units") {
+    const creativeUnits = nodes.filter((node) => node.nodeType === "creative_unit");
+
+    return creativeUnits.flatMap((unit) =>
+      labels.map((label) => [
+        { label: unit.label, nodeType: "creative_unit" as const },
+        { label, nodeType: draft.nodeType },
+      ]),
+    );
+  }
+
+  const parentPath = cleanPath.filter((item) => item.nodeType !== draft.nodeType);
+  const fallbackParentPath =
+    parentPath.length || cleanPath[0]?.nodeType === "creative_unit"
+      ? parentPath
+      : cleanPath.slice(0, -1);
+
+  return labels.map((label) => [
+    ...fallbackParentPath,
+    { label, nodeType: draft.nodeType },
   ]);
+}
+
+function getInitialAiApplyDraft(suggestion: AiSuggestion): AiApplyDraft {
+  const lastItem = suggestion.path[suggestion.path.length - 1];
+  const nodeType = lastItem?.nodeType ?? "duration";
+  const labels = suggestion.path
+    .filter((item) => item.nodeType === nodeType)
+    .map((item) => item.label)
+    .filter(Boolean);
+
+  return {
+    labelsText: labels.length ? labels.join("\n") : lastItem?.label ?? "",
+    nodeType,
+    target: nodeType === "creative_unit" ? "suggested_path" : "all_creative_units",
+  };
+}
+
+function parseDraftLabels(value: string) {
+  return Array.from(
+    new Set(
+      value
+        .split(/\n|,/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  );
 }
 
 function suggestionHierarchyRank(suggestion: AiSuggestion) {
