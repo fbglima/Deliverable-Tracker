@@ -113,7 +113,7 @@ async function createSpreadsheet(
               rowCount: Math.max(workbook.terminalRows.length + 20, 100),
             },
             sheetId: terminalSheetId,
-            title: "Terminal Files",
+            title: "Deliverable Files",
           },
         },
         {
@@ -151,7 +151,7 @@ async function writeValues(
             values: workbook.creativeRows,
           },
           {
-            range: "Terminal Files!A1",
+            range: "Deliverable Files!A1",
             values: workbook.terminalRows,
           },
           {

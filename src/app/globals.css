@@ -275,6 +275,12 @@ select {
   font-weight: 500;
 }
 
+.dt-segment-equal button {
+  flex: 1;
+  justify-content: center;
+  min-width: 0;
+}
+
 .dt-btn {
   height: 30px;
   display: inline-flex;
@@ -303,6 +309,31 @@ select {
 .dt-btn:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.dt-loading {
+  position: relative;
+  overflow: hidden;
+}
+
+.dt-loading::after {
+  animation: dt-loading-slide 1.15s linear infinite;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.34),
+    transparent
+  );
+  content: "";
+  inset: 0;
+  position: absolute;
+  transform: translateX(-100%);
+}
+
+@keyframes dt-loading-slide {
+  to {
+    transform: translateX(100%);
+  }
 }
 
 .dt-ai-btn {
@@ -381,6 +412,7 @@ select {
 
 .dt-input {
   min-height: 32px;
+  box-sizing: border-box;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-md);
   background: var(--bg-input);

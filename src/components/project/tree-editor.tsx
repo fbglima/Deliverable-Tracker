@@ -11,6 +11,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import {
+  Camera,
   ChevronRight,
   Clock3,
   Download,
@@ -245,7 +246,7 @@ export function TreeEditor({
   const [isAnalyzingIntake, setIsAnalyzingIntake] = useState(false);
   const [enumerateTextExports, setEnumerateTextExports] = useState(false);
   const [includeTechnicalExports, setIncludeTechnicalExports] = useState(false);
-  const [status, setStatus] = useState("Unsaved edits stay local until saved.");
+  const [status, setStatus] = useState("Unsaved edits local until saved.");
   const [isPending, startTransition] = useTransition();
 
   const versionSourceNode = versionSourceNodeId
@@ -278,9 +279,10 @@ export function TreeEditor({
     .join(" · ");
   const defaultOutputFormats =
     tree.defaultOutputFormats?.length
-      ? tree.defaultOutputFormats
-      : ["H264 MP4", "ProRes MOV"];
+      ? tree.defaultOutputFormats.map(normalizeOutputFormatLabel)
+      : ["h.264 .mp4", "ProRes .mov"];
   const autoApplyOutputFormats = tree.autoApplyOutputFormats ?? true;
+  const creativeUnitLabel = tree.creativeUnitLabel?.trim() || "Creative Unit";
   const filenameCase = tree.filenameCase ?? "lower";
   const filenameSeparator = tree.filenameSeparator ?? "-";
   const enabledForkTypes = getEnabledForkTypes(tree);
@@ -332,7 +334,7 @@ export function TreeEditor({
   }
 
   function addCreativeUnit() {
-    const label = creativeUnitName.trim() || "Creative Unit 01";
+    const label = creativeUnitName.trim() || `${creativeUnitLabel} 01`;
     const child = createNode("creative_unit", label);
     commitTree({ ...tree, nodes: [...tree.nodes, child] });
     setSelectedNodeId(child.id);
@@ -348,23 +350,24 @@ export function TreeEditor({
   }
 
   function openAddVersions(nodeId?: string) {
-    const sourceNode = nodeId ? findNode(tree.nodes, nodeId) : null;
+    const resolvedNodeId = nodeId === undefined ? selectedNodeId : nodeId;
+    const sourceNode = resolvedNodeId ? findNode(tree.nodes, resolvedNodeId) : null;
     const addableTypes = getAddableTypesForNode(
       sourceNode?.nodeType ?? null,
       enabledForkTypes,
     );
 
     if (!addableTypes.length) {
-      setStatus("Output format rows are terminal. Add new forks above this file row.");
+      setStatus("Output format rows are files. Add new forks above this row.");
       return;
     }
 
-    if (nodeId) {
-      setSelectedNodeId(nodeId);
+    if (resolvedNodeId) {
+      setSelectedNodeId(resolvedNodeId);
     }
     setOpenMenuNodeId(null);
-    setVersionSourceNodeId(nodeId ?? null);
-    setVersionsTarget(nodeId ? "selected" : "all");
+    setVersionSourceNodeId(resolvedNodeId ?? null);
+    setVersionsTarget(resolvedNodeId ? "selected" : "all");
 
     const nextType = addableTypes.includes(versionsType)
       ? versionsType
@@ -413,6 +416,13 @@ export function TreeEditor({
       ...tree,
       autoApplyOutputFormats: autoApply,
       defaultOutputFormats: formats,
+    });
+  }
+
+  function updateCreativeUnitLabel(label: string) {
+    commitTree({
+      ...tree,
+      creativeUnitLabel: label.trim() || "Creative Unit",
     });
   }
 
@@ -548,15 +558,20 @@ export function TreeEditor({
   }
 
   function acceptAiSuggestion(suggestion: AiSuggestion) {
-    const nextNodes = addSuggestionPath(tree.nodes, suggestion.path, {
-      autoApplyOutputFormats,
-      defaultOutputFormats,
-    });
+    const suggestionPaths = expandSuggestionPaths(tree.nodes, suggestion.path);
+    const nextNodes = suggestionPaths.reduce<DeliverableNode[]>(
+      (nodes, path) =>
+        addSuggestionPath(nodes, path, {
+          autoApplyOutputFormats,
+          defaultOutputFormats,
+        }),
+      tree.nodes,
+    );
 
     commitTree({ ...tree, nodes: nextNodes });
     setOpenIds((current) => {
       const next = new Set(current);
-      collectOpenIdsForPath(nextNodes, suggestion.path, next);
+      suggestionPaths.forEach((path) => collectOpenIdsForPath(nextNodes, path, next));
       return next;
     });
     setAcceptedAiSuggestionIds((current) => new Set(current).add(suggestion.id));
@@ -601,7 +616,8 @@ export function TreeEditor({
         workspaceName={workspaceName}
       />
       <ProjectHeader
-        creative={counts.creativeDeliverables}
+        creativeUnitLabel={creativeUnitLabel}
+        creativeUnits={countNodesByType(tree, "creative_unit")}
         cuts={cuts}
         description={
           projectDescription ||
@@ -609,7 +625,7 @@ export function TreeEditor({
         }
         onEdit={() => setShowProjectModal(true)}
         ratios={ratios}
-        terminals={counts.terminalFiles}
+        deliverableFiles={counts.terminalFiles}
         title={projectTitle}
       />
       <Toolbar
@@ -707,6 +723,8 @@ export function TreeEditor({
               filenameCase={filenameCase}
               filenameSeparator={filenameSeparator}
               formats={defaultOutputFormats}
+              creativeUnitLabel={creativeUnitLabel}
+              onCreativeUnitLabelChange={updateCreativeUnitLabel}
               onFilenameChange={updateFilenameDefaults}
               onForkTypesChange={updateEnabledForkTypes}
               onOutputChange={updateOutputDefaults}
@@ -769,7 +787,7 @@ export function TreeEditor({
           title="Add creative unit"
         >
           <p className="dt-sub">
-            A Creative Unit is a top-level piece of creative: a script, spot,
+            A {creativeUnitLabel} is a top-level piece of creative: a script, spot,
             vignette, product story, market, message, scene, loop, or other
             producer-defined grouping. Give it a working name now; you can
             rename it inline later.
@@ -785,7 +803,7 @@ export function TreeEditor({
                   addCreativeUnit();
                 }
               }}
-              placeholder="Creative Unit 01"
+              placeholder={`${creativeUnitLabel} 01`}
               value={creativeUnitName}
             />
           </label>
@@ -834,6 +852,7 @@ export function TreeEditor({
 
       {showVersionsModal ? (
         <AddVersionsModal
+          creativeUnitLabel={creativeUnitLabel}
           customLabels={customVersionLabels}
           onClose={() => setShowVersionsModal(false)}
           onCustomLabels={setCustomVersionLabels}
@@ -931,20 +950,22 @@ function TopBar({
 }
 
 function ProjectHeader({
-  creative,
+  creativeUnitLabel,
+  creativeUnits,
   cuts,
+  deliverableFiles,
   description,
   onEdit,
   ratios,
-  terminals,
   title,
 }: {
-  creative: number;
+  creativeUnitLabel: string;
+  creativeUnits: number;
   cuts: number;
+  deliverableFiles: number;
   description: string;
   onEdit: () => void;
   ratios: number;
-  terminals: number;
   title: string;
 }) {
   return (
@@ -965,10 +986,10 @@ function ProjectHeader({
         <div className="dt-sub max-w-[520px]">{description}</div>
       </div>
       <div className="dt-statgrid">
-        <Stat label="Creative" value={creative} />
+        <Stat label={pluralizeLabel(creativeUnitLabel)} value={creativeUnits} />
         <Stat label="Cuts" value={cuts} />
         <Stat label="Ratios" value={ratios} />
-        <Stat label="Terminal files" value={terminals} />
+        <Stat label="Deliverable files" value={deliverableFiles} />
       </div>
     </header>
   );
@@ -1069,7 +1090,7 @@ function Toolbar({
         <span className="mono text-[10px] opacity-75">⌥A</span>
       </button>
       <button className="dt-btn" disabled={disabled} onClick={onSnapshot} type="button">
-        <Sparkles className="h-3.5 w-3.5" /> Snapshot
+        <Camera className="h-3.5 w-3.5" /> Snapshot
       </button>
       <button className="dt-btn" disabled={disabled} onClick={onSave} type="button">
         <Save className="h-3.5 w-3.5" /> Save
@@ -1494,19 +1515,23 @@ function FanBadge({
 
 function ProjectSettingsPanel({
   autoApply,
+  creativeUnitLabel,
   enabledForkTypes,
   filenameCase,
   filenameSeparator,
   formats,
+  onCreativeUnitLabelChange,
   onFilenameChange,
   onForkTypesChange,
   onOutputChange,
 }: {
   autoApply: boolean;
+  creativeUnitLabel: string;
   enabledForkTypes: MatrixNodeType[];
   filenameCase: FilenameCase;
   filenameSeparator: FilenameSeparator;
   formats: string[];
+  onCreativeUnitLabelChange: (label: string) => void;
   onFilenameChange: (
     caseStyle: FilenameCase,
     separator: FilenameSeparator,
@@ -1516,15 +1541,25 @@ function ProjectSettingsPanel({
 }) {
   const [activeTab, setActiveTab] = useState<"outputs" | "taxonomy">("outputs");
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const baseFormats = ["H264 MP4", "ProRes MOV", "WebM"];
+  const baseFormats = ["h.264 .mp4", "ProRes .mov", "WebM"];
   const [customFormat, setCustomFormat] = useState("");
-  const options = Array.from(new Set([...baseFormats, ...formats]));
+  const [previewParts, setPreviewParts] = useState([
+    "Client",
+    "Project Name",
+    creativeUnitLabel,
+    ":30",
+    "16x9",
+  ]);
+  const [customPreviewText, setCustomPreviewText] = useState("");
+  const options = Array.from(
+    new Set([...baseFormats, ...formats.map(normalizeOutputFormatLabel)]),
+  );
 
   function toggleFormat(format: string) {
     const nextFormats = formats.includes(format)
       ? formats.filter((item) => item !== format)
       : [...formats, format];
-    onOutputChange(nextFormats.length ? nextFormats : ["H264 MP4"], autoApply);
+    onOutputChange(nextFormats.length ? nextFormats : ["h.264 .mp4"], autoApply);
   }
 
   function addCustomFormat() {
@@ -1541,6 +1576,32 @@ function ProjectSettingsPanel({
       ? enabledForkTypes.filter((item) => item !== forkType)
       : [...enabledForkTypes, forkType];
     onForkTypesChange(sortForkTypes(nextForkTypes));
+  }
+
+  function movePreviewPart(index: number, direction: -1 | 1) {
+    const targetIndex = index + direction;
+
+    if (targetIndex < 0 || targetIndex >= previewParts.length) {
+      return;
+    }
+
+    setPreviewParts((current) => {
+      const next = [...current];
+      const [item] = next.splice(index, 1);
+      next.splice(targetIndex, 0, item);
+      return next;
+    });
+  }
+
+  function addPreviewText() {
+    const value = customPreviewText.trim();
+
+    if (!value) {
+      return;
+    }
+
+    setPreviewParts((current) => [...current, value]);
+    setCustomPreviewText("");
   }
 
   return (
@@ -1563,14 +1624,14 @@ function ProjectSettingsPanel({
         <div className="mt-3 flex flex-wrap gap-2">
           {getTaxonomyFlow(enabledForkTypes).map((type) => (
             <span className="dt-chip" key={type}>
-              {nodeTypeLabels[type]}
+              {getNodeTypeLabel(type, creativeUnitLabel)}
             </span>
           ))}
         </div>
       ) : null}
       {!isCollapsed ? (
         <>
-      <div className="dt-segment mt-4 w-full">
+      <div className="dt-segment dt-segment-equal mt-4 w-full">
         <button
           className={activeTab === "outputs" ? "is-active" : ""}
           onClick={() => setActiveTab("outputs")}
@@ -1590,12 +1651,12 @@ function ProjectSettingsPanel({
       {activeTab === "outputs" ? (
         <>
           <p className="dt-sub mt-4">
-            These formats populate new terminal branches when auto-populate is on.
+            These formats populate new deliverable file branches when auto-populate is on.
           </p>
           <div className="mt-4 grid gap-2">
             {options.map((format) => (
               <label
-                className="flex items-center gap-2 rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--bg-app)] px-2 py-1.5 text-sm text-[var(--ink-2)]"
+                className="flex items-center gap-2 rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--bg-app)] px-2 py-1 text-xs text-[var(--ink-2)]"
                 key={format}
               >
                 <input
@@ -1609,14 +1670,14 @@ function ProjectSettingsPanel({
           </div>
           <div className="mt-3 flex gap-2">
             <input
-              className="dt-input min-w-0 flex-1"
+              className="dt-input min-w-0 flex-1 py-1 text-xs"
               onChange={(event) => setCustomFormat(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   addCustomFormat();
                 }
               }}
-              placeholder="Custom format"
+              placeholder="custom format"
               value={customFormat}
             />
             <button className="dt-btn" onClick={addCustomFormat} type="button">
@@ -1649,7 +1710,7 @@ function ProjectSettingsPanel({
               <label className="dt-field">
                 Separator
                 <select
-                  className="dt-input"
+                  className="dt-input w-full min-w-0"
                   onChange={(event) =>
                     onFilenameChange(
                       filenameCase,
@@ -1660,12 +1721,13 @@ function ProjectSettingsPanel({
                 >
                   <option value="-">Hyphen: client-project-name</option>
                   <option value="_">Underscore: client_project_name</option>
+                  <option value=" ">Space: client project name</option>
                 </select>
               </label>
               <label className="dt-field">
                 Case
                 <select
-                  className="dt-input"
+                  className="dt-input w-full min-w-0"
                   onChange={(event) =>
                     onFilenameChange(
                       event.target.value as FilenameCase,
@@ -1681,14 +1743,56 @@ function ProjectSettingsPanel({
               </label>
               <div className="rounded-[var(--r-sm)] border border-dashed border-[var(--line-strong)] bg-[var(--bg-subtle)] px-3 py-2">
                 <div className="dt-eyebrow">Preview</div>
-                <div className="mono mt-1 truncate text-xs text-[var(--ink-2)]">
+                <div className="mono mt-1 break-all text-xs text-[var(--ink-2)]">
                   {formatFilenameParts(
-                    ["Client", "Project Name", "Creative Unit 01", ":30", "16x9"],
+                    previewParts,
                     {
                       caseStyle: filenameCase,
                       separator: filenameSeparator,
                     },
                   )}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {previewParts.map((part, index) => (
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--bg-panel)] px-2 py-1 text-[11px] text-[var(--ink-2)]"
+                      key={`${part}-${index}`}
+                    >
+                      <span className="mono">{part}</span>
+                      <button
+                        className="text-[var(--ink-4)] hover:text-[var(--ink-1)]"
+                        disabled={index === 0}
+                        onClick={() => movePreviewPart(index, -1)}
+                        type="button"
+                      >
+                        ←
+                      </button>
+                      <button
+                        className="text-[var(--ink-4)] hover:text-[var(--ink-1)]"
+                        disabled={index === previewParts.length - 1}
+                        onClick={() => movePreviewPart(index, 1)}
+                        type="button"
+                      >
+                        →
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    className="dt-input min-w-0 flex-1 py-1 text-xs"
+                    onChange={(event) => setCustomPreviewText(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        addPreviewText();
+                      }
+                    }}
+                    placeholder="custom text"
+                    value={customPreviewText}
+                  />
+                  <button className="dt-btn h-8 px-2" onClick={addPreviewText} type="button">
+                    Add
+                  </button>
                 </div>
               </div>
             </div>
@@ -1697,13 +1801,37 @@ function ProjectSettingsPanel({
       ) : (
         <div className="mt-4 grid gap-3">
           <p className="dt-sub">
-            Creative Unit and Output Format are always present. Enable only the
+            Rename Creative Unit if this project thinks in scripts, spots, markets,
+            vignettes, or another top-level organizing idea. Output Format is
+            always present. Enable only the
             fork levels this project needs.
           </p>
           <div className="grid gap-2">
+            <label className="flex items-start gap-3 rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--bg-subtle)] px-3 py-2 text-xs text-[var(--ink-2)]">
+              <input checked disabled className="mt-1 opacity-40" type="checkbox" />
+              <span className="mt-0.5 text-[var(--ink-3)]">
+                <NodeGlyph label={creativeUnitLabel} nodeType="creative_unit" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <input
+                  className="dt-input h-8 w-full min-w-0 py-1 text-xs font-medium"
+                  onBlur={(event) => onCreativeUnitLabelChange(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      onCreativeUnitLabelChange(event.currentTarget.value);
+                      event.currentTarget.blur();
+                    }
+                  }}
+                  defaultValue={creativeUnitLabel}
+                />
+                <span className="dt-sub mt-1 block">
+                  Always present. Rename this to match your project language.
+                </span>
+              </span>
+            </label>
             {taxonomyOptions.map((option) => (
               <label
-                className="flex items-start gap-3 rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--bg-app)] px-3 py-2.5 text-sm text-[var(--ink-2)]"
+                className="flex items-start gap-3 rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--bg-app)] px-3 py-2 text-xs text-[var(--ink-2)]"
                 key={option.type}
               >
                 <input
@@ -1717,7 +1845,7 @@ function ProjectSettingsPanel({
                 </span>
                 <span className="min-w-0">
                   <span className="block font-medium text-[var(--ink-1)]">
-                    {nodeTypeLabels[option.type]}
+                    {getNodeTypeLabel(option.type, creativeUnitLabel)}
                   </span>
                   <span className="dt-sub mt-0.5 block">{option.description}</span>
                 </span>
@@ -1729,7 +1857,7 @@ function ProjectSettingsPanel({
             <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-[var(--ink-2)]">
               {getTaxonomyFlow(enabledForkTypes).map((type, index, path) => (
                 <span className="inline-flex items-center gap-1.5" key={type}>
-                  <span className="dt-chip">{nodeTypeLabels[type]}</span>
+                  <span className="dt-chip">{getNodeTypeLabel(type, creativeUnitLabel)}</span>
                   {index < path.length - 1 ? (
                     <ChevronRight className="h-3 w-3 text-[var(--ink-4)]" />
                   ) : null}
@@ -1768,7 +1896,9 @@ function SnapshotPanel({
     <section className="dt-panel p-4">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold">Snapshots</h2>
-        <span className="dt-chip">{isPending ? "saving" : status}</span>
+        <span className="dt-chip h-auto max-w-[180px] whitespace-normal py-1 leading-4">
+          {isPending ? "saving" : status}
+        </span>
       </div>
       <div className="mt-4 grid gap-3">
         <input
@@ -1853,26 +1983,27 @@ function AiAssistantPanel({
     <section className="dt-panel min-w-0 overflow-hidden">
       <div className="dt-ai-sheen h-1.5" />
       <div className="p-4">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold">AI Assistant</h2>
-        <Sparkles className="h-4 w-4 text-[var(--ink-3)]" />
-      </div>
-      <p className="dt-sub mt-2">
-        Paste client notes or brief language. Suggestions stay local until you
-        accept them and save.
-      </p>
-      <p className="mt-3 rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--bg-subtle)] p-2 text-xs leading-5 text-[var(--ink-3)]">
-        Do not paste confidential or sensitive client material unless you have
-        permission to process it with AI.
-      </p>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold">AI Assistant</h2>
+          <Sparkles className="h-4 w-4 text-[var(--ink-3)]" />
+        </div>
+        <p className="dt-sub mt-2">
+          Paste client notes or brief language. Suggestions stay local until you
+          accept them and save.
+        </p>
       <textarea
-        className="dt-input mt-3 min-h-40 resize-y text-sm leading-5 shadow-inner"
-        onChange={(event) => onInputText(event.target.value)}
+        className="dt-input mt-3 min-h-44 w-full resize-y text-xs leading-5 shadow-inner"
+        onChange={(event) => {
+          onInputText(event.target.value);
+          event.currentTarget.style.height = "auto";
+          event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 420)}px`;
+        }}
         placeholder="Paste client email, brief notes, or scope language..."
+        rows={7}
         value={inputText}
       />
       <button
-        className="dt-btn primary mt-3 w-full justify-center"
+        className={`dt-btn primary mt-3 w-full justify-center ${isAnalyzing ? "dt-loading" : ""}`}
         disabled={isAnalyzing}
         onClick={onAnalyze}
         type="button"
@@ -1942,11 +2073,11 @@ function SuggestionList({
     const secondDone =
       acceptedSuggestionIds.has(second.id) || rejectedSuggestionIds.has(second.id);
 
-    if (firstDone === secondDone) {
-      return 0;
+    if (firstDone !== secondDone) {
+      return firstDone ? 1 : -1;
     }
 
-    return firstDone ? 1 : -1;
+    return suggestionHierarchyRank(first) - suggestionHierarchyRank(second);
   });
 
   function toggleLogic(suggestionId: string) {
@@ -2070,16 +2201,16 @@ function AiNotes({
   notes: AiIntakeResult["questions"];
   title: string;
 }) {
-  const [copyStatus, setCopyStatus] = useState("Copy text");
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
   if (!notes.length) {
     return null;
   }
 
-  async function copyNotes() {
-    await navigator.clipboard.writeText(notes.map((note) => note.text).join("\n"));
-    setCopyStatus("Copied");
-    window.setTimeout(() => setCopyStatus("Copy text"), 1200);
+  async function copyNote(text: string, index: number) {
+    await navigator.clipboard.writeText(text);
+    setCopiedIndex(index);
+    window.setTimeout(() => setCopiedIndex(null), 1200);
   }
 
   return (
@@ -2088,11 +2219,6 @@ function AiNotes({
         <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--ink-3)]">
           {title}
         </h3>
-        {copyable ? (
-          <button className="dt-btn h-7 px-2" onClick={copyNotes} type="button">
-            {copyStatus}
-          </button>
-        ) : null}
       </div>
       <div className="mt-2 grid gap-2">
         {notes.map((note, index) => (
@@ -2102,7 +2228,18 @@ function AiNotes({
           >
             <div className="flex items-start justify-between gap-2">
               <p className="text-sm leading-5 text-[var(--ink-2)]">{note.text}</p>
-              <ConfidenceChip confidence={note.confidence} />
+              <div className="flex shrink-0 flex-col items-end gap-2">
+                <ConfidenceChip confidence={note.confidence} />
+                {copyable ? (
+                  <button
+                    className="dt-btn h-7 px-2"
+                    onClick={() => copyNote(note.text, index)}
+                    type="button"
+                  >
+                    {copiedIndex === index ? "Copied" : "Copy"}
+                  </button>
+                ) : null}
+              </div>
             </div>
           </div>
         ))}
@@ -2196,7 +2333,7 @@ function ExportPanel({
       [
         project.client_name,
         project.name,
-        sheetsMode === "creative" ? "creative-matrix" : "terminal-files",
+        sheetsMode === "creative" ? "creative-matrix" : "deliverable-files",
       ].filter(Boolean) as string[],
       { caseStyle: filenameCase, separator: filenameSeparator },
     );
@@ -2339,7 +2476,7 @@ function ExportPanel({
         <p className="dt-sub mt-2">{googleExportStatus}</p>
       ) : null}
       <div className="mono mt-3 text-[10.5px] text-[var(--ink-3)]">
-        {csvPaths.length} terminal rows ready
+        {csvPaths.length} deliverable file rows ready
       </div>
       {showTextExport ? (
         <Modal
@@ -2422,7 +2559,7 @@ function ExportPanel({
                 onClick={() => setSheetsMode("terminal")}
                 type="button"
               >
-                Terminal files
+                Deliverable files
               </button>
             </div>
             <textarea
@@ -3003,6 +3140,7 @@ function SnapshotModal({
 
 function AddVersionsModal({
   addableTypes,
+  creativeUnitLabel,
   customLabels,
   enabledForkTypes,
   onClose,
@@ -3018,6 +3156,7 @@ function AddVersionsModal({
   type,
 }: {
   addableTypes: MatrixNodeType[];
+  creativeUnitLabel: string;
   customLabels: string;
   enabledForkTypes: MatrixNodeType[];
   onClose: () => void;
@@ -3054,7 +3193,7 @@ function AddVersionsModal({
           >
             {addableTypes.map((item) => (
               <option key={item} value={item}>
-                {nodeTypeLabels[item]}
+                {getNodeTypeLabel(item, creativeUnitLabel)}
               </option>
             ))}
           </select>
@@ -3412,7 +3551,7 @@ function buildTextTreeExport({
     title,
     "",
     `Creative deliverables: ${counts.creativeDeliverables}`,
-    `Terminal files: ${counts.terminalFiles}`,
+    `Deliverable files: ${counts.terminalFiles}`,
     `Technical variants: ${includeTechnical ? "included" : "hidden"}`,
     "",
     ...treeLines,
@@ -3595,7 +3734,7 @@ function buildCreativeMatrixRows(paths: ExportPath[]) {
     "Technical Variants",
     "Creative Attention",
     "Output Formats",
-    "Terminal File Count",
+    "Deliverable File Count",
     "Notes",
     "Assumptions / Questions",
   ];
@@ -3960,6 +4099,35 @@ function addSuggestionPath(
   return addAtDepth(nodes, 0);
 }
 
+function expandSuggestionPaths(
+  nodes: DeliverableNode[],
+  path: AiSuggestion["path"],
+) {
+  const cleanPath = path.filter((item) => item.label.trim());
+
+  if (!cleanPath.length || cleanPath[0]?.nodeType === "creative_unit") {
+    return [cleanPath];
+  }
+
+  const creativeUnits = nodes.filter((node) => node.nodeType === "creative_unit");
+
+  if (!creativeUnits.length) {
+    return [cleanPath];
+  }
+
+  return creativeUnits.map((unit) => [
+    { label: unit.label, nodeType: "creative_unit" as const },
+    ...cleanPath,
+  ]);
+}
+
+function suggestionHierarchyRank(suggestion: AiSuggestion) {
+  const ranks = suggestion.path.map((item) => allNodeTypes.indexOf(item.nodeType));
+  const firstRank = Math.min(...ranks.filter((rank) => rank >= 0));
+
+  return Number.isFinite(firstRank) ? firstRank : 999;
+}
+
 function defaultChildrenForSuggestion(
   nodeType: MatrixNodeType,
   options: {
@@ -4125,6 +4293,42 @@ function metaType(nodeType: MatrixNodeType) {
   };
 
   return map[nodeType];
+}
+
+function getNodeTypeLabel(nodeType: MatrixNodeType, creativeUnitLabel: string) {
+  return nodeType === "creative_unit" ? creativeUnitLabel : nodeTypeLabels[nodeType];
+}
+
+function pluralizeLabel(label: string) {
+  const trimmed = label.trim();
+
+  if (!trimmed) {
+    return "Creative Units";
+  }
+
+  if (trimmed.toLowerCase() === "creative unit") {
+    return "Creative Units";
+  }
+
+  if (trimmed.endsWith("s")) {
+    return trimmed;
+  }
+
+  return `${trimmed}s`;
+}
+
+function normalizeOutputFormatLabel(label: string) {
+  const normalized = label.trim().toLowerCase().replace(/\s+/g, " ");
+
+  if (normalized === "h264 mp4" || normalized === "h.264 mp4") {
+    return "h.264 .mp4";
+  }
+
+  if (normalized === "prores mov" || normalized === "prores 422 mov") {
+    return "ProRes .mov";
+  }
+
+  return label.trim();
 }
 
 function codecLabel(label: string) {

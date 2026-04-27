@@ -86,6 +86,7 @@ export async function POST(request: NextRequest) {
           "Return only evidence-grounded suggestions. Do not invent deliverables that are not implied by the pasted text.",
           "Every suggested addition must be a concrete path using nodeType values from the schema.",
           "If a brief says something applies to all current creative units, expand it into one suggestion per creative unit.",
+          "Order additions by hierarchy: creative_unit first, then duration, aspect_ratio, platform, localization, technical_variant, and output_format last.",
           "For each addition, include a short sourceExcerpt copied or tightly paraphrased from the pasted text and a one-line confirmationLanguage sentence a producer could send to a client before accepting.",
           "Prefer questions and assumptions over low-confidence mutations.",
         ].join(" "),

@@ -10,7 +10,7 @@ export type MatrixNodeType =
   | "output_format";
 
 export type FilenameCase = "lower" | "title" | "camel";
-export type FilenameSeparator = "-" | "_";
+export type FilenameSeparator = "-" | "_" | " ";
 
 export type DeliverableNode = {
   id: string;
@@ -26,6 +26,7 @@ export type DeliverableTree = {
   enabledForkTypes?: MatrixNodeType[];
   defaultOutputFormats?: string[];
   autoApplyOutputFormats?: boolean;
+  creativeUnitLabel?: string;
   filenameCase?: FilenameCase;
   filenameSeparator?: FilenameSeparator;
   nodes: DeliverableNode[];

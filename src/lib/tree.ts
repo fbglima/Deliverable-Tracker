@@ -52,7 +52,7 @@ export const presetValues: Record<MatrixNodeType, string[]> = {
   platform: ["Instagram", "TikTok", "YouTube", "Meta"],
   localization: ["Global", "US", "LATAM", "Brazil", "France"],
   technical_variant: ["With Slate", "Without Slate", "Broadcast", "Web"],
-  output_format: ["H264 MP4", "ProRes MOV"],
+  output_format: ["h.264 .mp4", "ProRes .mov"],
 };
 
 export function createId(prefix = "node") {
@@ -78,8 +78,9 @@ export function createDefaultTree(): DeliverableTree {
     hierarchy: defaultHierarchy,
     optionalLevels,
     enabledForkTypes: defaultEnabledForkTypes,
-    defaultOutputFormats: ["H264 MP4", "ProRes MOV"],
+    defaultOutputFormats: ["h.264 .mp4", "ProRes .mov"],
     autoApplyOutputFormats: true,
+    creativeUnitLabel: "Creative Unit",
     filenameCase: "lower",
     filenameSeparator: "-",
     nodes: [

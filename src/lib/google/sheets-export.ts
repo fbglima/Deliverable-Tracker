@@ -67,9 +67,9 @@ export function buildSheetsWorkbook({
     summaryRows: [
       ["Metric", "Count"],
       ["Creative deliverables", counts.creativeDeliverables],
-      ["Terminal files", counts.terminalFiles],
+      ["Deliverable files", counts.terminalFiles],
       ["Creative matrix rows", Math.max(creativeRows.length - 1, 0)],
-      ["Terminal file rows", Math.max(terminalRows.length - 1, 0)],
+      ["Deliverable file rows", Math.max(terminalRows.length - 1, 0)],
     ],
     technicalVariants: uniquePathValues(paths, "technical_variant"),
     terminalRows,
@@ -124,7 +124,7 @@ function buildCreativeMatrixRows(paths: ExportPath[]) {
     "Technical Variants",
     "Creative Attention",
     "Output Formats",
-    "Terminal File Count",
+    "Deliverable File Count",
     "Notes",
     "Assumptions / Questions",
   ];
