@@ -1357,7 +1357,7 @@ function MatrixRow({
                   + Add versions
                 </button>
                 <button
-                  className="ml-1 hidden shrink-0 rounded-full border border-[var(--line)] bg-[var(--bg-panel)] px-2 py-0.5 text-[11px] font-medium text-[var(--ink-2)] shadow-[var(--shadow-card)] hover:border-[var(--line-strong)] hover:text-[var(--ink-1)] group-hover:inline-flex"
+                  className="ml-1 hidden shrink-0 items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--bg-panel)] px-2 py-0.5 text-[11px] font-medium text-[var(--ink-2)] shadow-[var(--shadow-card)] hover:border-[var(--line-strong)] hover:text-[var(--ink-1)] group-hover:inline-flex"
                   onClick={(event) => {
                     event.stopPropagation();
                     onDuplicate();
