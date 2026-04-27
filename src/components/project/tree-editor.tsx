@@ -14,6 +14,7 @@ import {
   Camera,
   ChevronRight,
   Clock3,
+  Copy,
   Download,
   ExternalLink,
   FileText,
@@ -365,6 +366,25 @@ export function TreeEditor({
     setOpenMenuNodeId(null);
   }
 
+  function duplicateNode(nodeId: string) {
+    const result = duplicateNodeInTree(tree.nodes, nodeId);
+
+    if (!result) {
+      setStatus("Could not duplicate this row.");
+      return;
+    }
+
+    commitTree({ ...tree, nodes: result.nodes });
+    setSelectedNodeId(result.duplicatedNode.id);
+    setOpenMenuNodeId(null);
+    setOpenIds((current) => {
+      const next = new Set(current);
+      collectOpenIds(result.duplicatedNode, next);
+      return next;
+    });
+    setStatus("Row duplicated locally. Save when ready.");
+  }
+
   function openAddVersions(nodeId?: string) {
     const resolvedNodeId = nodeId === undefined ? selectedNodeId : nodeId;
     const sourceNode = resolvedNodeId ? findNode(tree.nodes, resolvedNodeId) : null;
@@ -672,7 +692,7 @@ export function TreeEditor({
       <main className="dt-canvas">
         <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
           <div className="grid min-w-0 content-start gap-4">
-            <div className="dt-panel min-w-0 overflow-hidden">
+            <div className="dt-panel min-w-0 overflow-visible">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--bg-panel)] px-4 py-3">
                 <div>
                   <h2 className="text-sm font-semibold">Deliverables</h2>
@@ -717,6 +737,7 @@ export function TreeEditor({
                         key={row.node.id}
                         onCommitEdit={commitInlineEdit}
                         onDelete={() => deleteNode(row.node.id)}
+                        onDuplicate={() => duplicateNode(row.node.id)}
                         onEditLabel={setEditingLabel}
                         onMenu={() =>
                           setOpenMenuNodeId((current) =>
@@ -1168,6 +1189,7 @@ function MatrixRow({
   isSelected,
   onCommitEdit,
   onDelete,
+  onDuplicate,
   onEditLabel,
   onHoverPath,
   onMenu,
@@ -1189,6 +1211,7 @@ function MatrixRow({
   isSelected: boolean;
   onCommitEdit: () => void;
   onDelete: () => void;
+  onDuplicate: () => void;
   onEditLabel: (label: string) => void;
   onHoverPath: (pathIds: string[]) => void;
   onMenu: () => void;
@@ -1237,7 +1260,9 @@ function MatrixRow({
 
   return (
     <div
-      className="dt-matrix-row group relative grid w-full grid-cols-[minmax(0,1fr)_110px_90px_72px_72px_28px] items-center border-b bg-transparent py-0 pr-[var(--row-px)] pl-2 text-left text-[var(--ink-1)] transition-[background-color,border-color,box-shadow] duration-150 hover:bg-[var(--bg-subtle)]"
+      className={`dt-matrix-row group relative grid w-full grid-cols-[minmax(0,1fr)_110px_90px_72px_72px_28px] items-center border-b bg-transparent py-0 pr-[var(--row-px)] pl-2 text-left text-[var(--ink-1)] transition-[background-color,border-color,box-shadow] duration-150 hover:bg-[var(--bg-subtle)] ${
+        openMenu ? "z-40" : "z-0"
+      }`}
       onClick={onSelect}
       onMouseEnter={() => onHoverPath(row.pathIds)}
       onMouseLeave={() => onHoverPath([])}
@@ -1320,16 +1345,28 @@ function MatrixRow({
               </span>
             ) : null}
             {node.nodeType !== "output_format" ? (
-              <button
-                className="ml-2 hidden shrink-0 rounded-full border border-[var(--line)] bg-[var(--bg-panel)] px-2 py-0.5 text-[11px] font-medium text-[var(--accent-ink)] shadow-[var(--shadow-card)] hover:border-[var(--accent-soft)] group-hover:inline-flex"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onOpenAddVersions();
-                }}
-                type="button"
-              >
-                + Add versions
-              </button>
+              <>
+                <button
+                  className="ml-2 hidden shrink-0 rounded-full border border-[var(--line)] bg-[var(--bg-panel)] px-2 py-0.5 text-[11px] font-medium text-[var(--accent-ink)] shadow-[var(--shadow-card)] hover:border-[var(--accent-soft)] group-hover:inline-flex"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenAddVersions();
+                  }}
+                  type="button"
+                >
+                  + Add versions
+                </button>
+                <button
+                  className="ml-1 hidden shrink-0 rounded-full border border-[var(--line)] bg-[var(--bg-panel)] px-2 py-0.5 text-[11px] font-medium text-[var(--ink-2)] shadow-[var(--shadow-card)] hover:border-[var(--line-strong)] hover:text-[var(--ink-1)] group-hover:inline-flex"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDuplicate();
+                  }}
+                  type="button"
+                >
+                  <Copy className="h-3 w-3" /> Duplicate
+                </button>
+              </>
             ) : null}
           </>
         )}
@@ -1367,7 +1404,7 @@ function MatrixRow({
       </div>
       {openMenu ? (
         <div
-          className="absolute right-5 top-[calc(100%-4px)] z-20 w-44 overflow-hidden rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--bg-elevated)] py-1 text-sm shadow-[var(--shadow-pop)]"
+          className="absolute right-5 top-[calc(100%-4px)] z-50 w-44 overflow-hidden rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--bg-elevated)] py-1 text-sm shadow-[var(--shadow-pop)]"
           onClick={(event) => event.stopPropagation()}
         >
           <button
@@ -1384,6 +1421,15 @@ function MatrixRow({
           >
             Add versions
           </button>
+          {node.nodeType !== "output_format" ? (
+            <button
+              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--bg-subtle)]"
+              onClick={onDuplicate}
+              type="button"
+            >
+              <Copy className="h-3.5 w-3.5" /> Duplicate
+            </button>
+          ) : null}
           <button
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-[#a33127] hover:bg-[#fff5f3]"
             onClick={onDelete}
@@ -3570,6 +3616,13 @@ function getInitialOpenIds(nodes: DeliverableNode[]) {
   return ids;
 }
 
+function collectOpenIds(node: DeliverableNode, ids: Set<string>) {
+  if (node.children?.length) {
+    ids.add(node.id);
+    node.children.forEach((child) => collectOpenIds(child, ids));
+  }
+}
+
 function collectOpenIdsForType(
   nodes: DeliverableNode[],
   _nodeType: MatrixNodeType,
@@ -5049,6 +5102,72 @@ function removeNode(nodes: DeliverableNode[], nodeId: string): DeliverableNode[]
       ...node,
       children: node.children ? removeNode(node.children, nodeId) : node.children,
     }));
+}
+
+function duplicateNodeInTree(
+  nodes: DeliverableNode[],
+  nodeId: string,
+): { duplicatedNode: DeliverableNode; nodes: DeliverableNode[] } | null {
+  let duplicatedNode: DeliverableNode | null = null;
+
+  function walk(siblings: DeliverableNode[]): DeliverableNode[] {
+    return siblings.flatMap((node) => {
+      if (node.id === nodeId && node.nodeType !== "output_format") {
+        const duplicate = cloneNodeForDuplicate(node, siblings);
+        duplicatedNode = duplicate;
+        return [node, duplicate];
+      }
+
+      return [
+        {
+          ...node,
+          children: node.children ? walk(node.children) : node.children,
+        },
+      ];
+    });
+  }
+
+  const nextNodes = walk(nodes);
+
+  if (!duplicatedNode) {
+    return null;
+  }
+
+  return { duplicatedNode, nodes: nextNodes };
+}
+
+function cloneNodeForDuplicate(
+  node: DeliverableNode,
+  siblings: DeliverableNode[],
+) {
+  return cloneNodeDeep(
+    node,
+    getDuplicateLabel(node, siblings.filter((item) => item.nodeType === node.nodeType)),
+  );
+}
+
+function cloneNodeDeep(node: DeliverableNode, label = node.label): DeliverableNode {
+  return createNode(
+    node.nodeType,
+    label,
+    node.children?.map((child) => cloneNodeDeep(child)) ?? [],
+  );
+}
+
+function getDuplicateLabel(node: DeliverableNode, siblings: DeliverableNode[]) {
+  const siblingLabels = new Set(
+    siblings.map((sibling) => sibling.label.trim().toLowerCase()),
+  );
+  const baseLabel = `${node.label} Copy`;
+  let candidate = baseLabel;
+  let suffix = 2;
+
+  while (siblingLabels.has(candidate.trim().toLowerCase())) {
+    candidate = `${baseLabel} ${suffix}`;
+    suffix += 1;
+  }
+
+  return candidate;
 }
 
 function rowKind(nodeType: MatrixNodeType) {
