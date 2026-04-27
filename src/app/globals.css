@@ -367,6 +367,27 @@ select {
   opacity: 0.55;
 }
 
+.dt-ai-cta {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: linear-gradient(90deg, #ffcf33, #ff6bcb, #7c6cff, #42d392);
+  color: #17140f;
+  font-size: 12px;
+  font-weight: 750;
+  box-shadow: var(--shadow-hover);
+  cursor: pointer;
+}
+
+.dt-ai-cta:hover {
+  filter: saturate(1.08) brightness(1.02);
+}
+
 .dt-ai-sheen {
   background: linear-gradient(90deg, #ffcf33, #ff6bcb, #7c6cff, #42d392);
 }

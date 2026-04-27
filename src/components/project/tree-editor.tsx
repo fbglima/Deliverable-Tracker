@@ -676,92 +676,80 @@ export function TreeEditor({
 
       <main className="dt-canvas">
         <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-          <div className="dt-panel min-w-0 overflow-hidden">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--bg-panel)] px-4 py-3">
-              <div>
-                <h2 className="text-sm font-semibold">Deliverables</h2>
-                <p className="dt-sub mt-0.5">
-                  Click a label to rename it. Use row menus to add versions or delete forks.
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  className="dt-btn"
-                  onClick={() => openAddVersions()}
-                  type="button"
-                >
-                  <Plus className="h-3.5 w-3.5" /> Add versions
-                </button>
-              <button
-                className="dt-btn primary"
-                onClick={() => setShowCreativeUnitModal(true)}
-                type="button"
-              >
-                  <Plus className="h-3.5 w-3.5" /> Add {creativeUnitLabel}
-              </button>
-              </div>
-            </div>
-            {viewMode === "rows" ? (
-              <>
-                <MatrixHeader />
+          <div className="grid min-w-0 content-start gap-4">
+            <div className="dt-panel min-w-0 overflow-hidden">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--bg-panel)] px-4 py-3">
                 <div>
-                  {filteredRows.map((row) => (
-                    <MatrixRow
-                      editingLabel={editingLabel}
-                      editingNodeId={editingNodeId}
-                      filenameCase={filenameCase}
-                      filenameSeparator={filenameSeparator}
-                      isAncestorContext={
-                        hoveredPathIds.includes(row.node.id) &&
-                        hoveredNodeId !== row.node.id
-                      }
-                      isHovered={hoveredNodeId === row.node.id}
-                      isOpen={openIds.has(row.node.id)}
-                      isSelected={selectedNodeId === row.node.id}
-                      key={row.node.id}
-                      onCommitEdit={commitInlineEdit}
-                      onDelete={() => deleteNode(row.node.id)}
-                      onEditLabel={setEditingLabel}
-                      onMenu={() =>
-                        setOpenMenuNodeId((current) =>
-                          current === row.node.id ? null : row.node.id,
-                        )
-                      }
-                      onHoverPath={setHoveredPathIds}
-                      onOpenAddVersions={() => openAddVersions(row.node.id)}
-                      onSelect={() => toggleNode(row.node)}
-                      onStartEdit={() => {
-                        setOpenMenuNodeId(null);
-                        startInlineEdit(row.node);
-                      }}
-                      openMenu={openMenuNodeId === row.node.id}
-                      projectClientName={projectClientName || null}
-                      projectName={projectCampaignName || projectName}
-                      row={row}
-                    />
-                  ))}
+                  <h2 className="text-sm font-semibold">Deliverables</h2>
+                  <p className="dt-sub mt-0.5">
+                    Click a label to rename it. Use row menus to add versions or delete forks.
+                  </p>
                 </div>
-              </>
-            ) : viewMode === "pivot" ? (
-              <PivotView tree={tree} />
-            ) : (
-              <TreeOutlineView nodes={tree.nodes} />
-            )}
-          </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="dt-btn"
+                    onClick={() => openAddVersions()}
+                    type="button"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Add versions
+                  </button>
+                  <button
+                    className="dt-btn primary"
+                    onClick={() => setShowCreativeUnitModal(true)}
+                    type="button"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Add {creativeUnitLabel}
+                  </button>
+                </div>
+              </div>
+              {viewMode === "rows" ? (
+                <>
+                  <MatrixHeader />
+                  <div>
+                    {filteredRows.map((row) => (
+                      <MatrixRow
+                        editingLabel={editingLabel}
+                        editingNodeId={editingNodeId}
+                        filenameCase={filenameCase}
+                        filenameSeparator={filenameSeparator}
+                        isAncestorContext={
+                          hoveredPathIds.includes(row.node.id) &&
+                          hoveredNodeId !== row.node.id
+                        }
+                        isHovered={hoveredNodeId === row.node.id}
+                        isOpen={openIds.has(row.node.id)}
+                        isSelected={selectedNodeId === row.node.id}
+                        key={row.node.id}
+                        onCommitEdit={commitInlineEdit}
+                        onDelete={() => deleteNode(row.node.id)}
+                        onEditLabel={setEditingLabel}
+                        onMenu={() =>
+                          setOpenMenuNodeId((current) =>
+                            current === row.node.id ? null : row.node.id,
+                          )
+                        }
+                        onHoverPath={setHoveredPathIds}
+                        onOpenAddVersions={() => openAddVersions(row.node.id)}
+                        onSelect={() => toggleNode(row.node)}
+                        onStartEdit={() => {
+                          setOpenMenuNodeId(null);
+                          startInlineEdit(row.node);
+                        }}
+                        openMenu={openMenuNodeId === row.node.id}
+                        projectClientName={projectClientName || null}
+                        projectName={projectCampaignName || projectName}
+                        row={row}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : viewMode === "pivot" ? (
+                <PivotView tree={tree} />
+              ) : (
+                <TreeOutlineView nodes={tree.nodes} />
+              )}
+            </div>
 
-          <aside className="grid min-w-0 content-start gap-4">
-            <ProjectSettingsPanel
-              autoApply={autoApplyOutputFormats}
-              enabledForkTypes={enabledForkTypes}
-              filenameCase={filenameCase}
-              filenameSeparator={filenameSeparator}
-              formats={defaultOutputFormats}
-              creativeUnitLabel={creativeUnitLabel}
-              onCreativeUnitLabelChange={updateCreativeUnitLabel}
-              onFilenameChange={updateFilenameDefaults}
-              onForkTypesChange={updateEnabledForkTypes}
-              onOutputChange={updateOutputDefaults}
-            />
             {showAiAssistant ? (
               <AiAssistantPanel
                 acceptedSuggestionIds={acceptedAiSuggestionIds}
@@ -777,6 +765,21 @@ export function TreeEditor({
                 status={aiStatus}
               />
             ) : null}
+          </div>
+
+          <aside className="grid min-w-0 content-start gap-4">
+            <ProjectSettingsPanel
+              autoApply={autoApplyOutputFormats}
+              enabledForkTypes={enabledForkTypes}
+              filenameCase={filenameCase}
+              filenameSeparator={filenameSeparator}
+              formats={defaultOutputFormats}
+              creativeUnitLabel={creativeUnitLabel}
+              onCreativeUnitLabelChange={updateCreativeUnitLabel}
+              onFilenameChange={updateFilenameDefaults}
+              onForkTypesChange={updateEnabledForkTypes}
+              onOutputChange={updateOutputDefaults}
+            />
             <ExportPanel
               enumerateDeliverables={enumerateTextExports}
               filenameCase={filenameCase}
@@ -922,7 +925,7 @@ export function TreeEditor({
               and scope notes, then suggest delivery matrix changes and client
               questions for your review.
             </p>
-            <p className="rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--bg-subtle)] p-3 text-xs leading-5 text-[var(--ink-3)]">
+            <p className="border-l-2 border-[var(--line-strong)] pl-3 text-[11px] leading-5 text-[var(--ink-3)]">
               Pasted copy is not stored by this app, but it is processed by
               OpenAI servers. Use discretion with highly confidential material.
             </p>
@@ -935,7 +938,7 @@ export function TreeEditor({
                 Not now
               </button>
               <button
-                className="dt-btn primary"
+                className="dt-ai-cta"
                 onClick={enableAiAssistant}
                 type="button"
               >
@@ -2045,23 +2048,35 @@ function AiAssistantPanel({
           </button>
         </div>
         {!isCollapsed ? (
-          <>
-            {result ? (
-              <div className="mt-4 grid gap-4" ref={resultRef}>
-                <div className="rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--bg-subtle)] p-3">
-                  <p className="text-xs leading-5 text-[var(--ink-3)]">
-                    Snapshot the current matrix before accepting AI changes if you
-                    want a clean before/after comparison.
-                  </p>
-                  <button
-                    className="dt-btn mt-2 w-full justify-center"
-                    onClick={onSnapshot}
-                    type="button"
-                  >
-                    Snapshot current state
-                  </button>
-                </div>
-                <div>
+          <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+            <div className="min-w-0">
+              <p className="dt-sub">
+                Paste client notes or brief language. Suggestions stay local until you
+                accept them and save.
+              </p>
+              <textarea
+                className="dt-input mt-3 min-h-56 w-full resize-y text-[11px] leading-4 shadow-inner"
+                onChange={(event) => {
+                  onInputText(event.target.value);
+                  event.currentTarget.style.height = "auto";
+                  event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 520)}px`;
+                }}
+                placeholder="Paste client email, brief notes, or scope language..."
+                rows={10}
+                value={inputText}
+              />
+              <button
+                className={`dt-btn primary mt-3 w-full justify-center ${isAnalyzing ? "dt-loading" : ""}`}
+                disabled={isAnalyzing}
+                onClick={onAnalyze}
+                type="button"
+              >
+                <Sparkles className="h-4 w-4" />
+                {isAnalyzing ? "Analyzing..." : "Analyze pasted text"}
+              </button>
+              {status ? <p className="dt-sub mt-2">{status}</p> : null}
+              {result ? (
+                <div className="mt-4 rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--bg-subtle)] p-3">
                   <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--ink-3)]">
                     Summary
                   </h3>
@@ -2069,44 +2084,46 @@ function AiAssistantPanel({
                     {result.summary}
                   </p>
                 </div>
-                <SuggestionList
-                  acceptedSuggestionIds={acceptedSuggestionIds}
-                  onAccept={onAccept}
-                  onReject={onReject}
-                  rejectedSuggestionIds={rejectedSuggestionIds}
-                  suggestions={result.additions}
-                />
-                <AiNotes title="Possible changes/removals" notes={result.removalsOrChanges} />
-                <AiNotes title="Assumptions" notes={result.assumptions} />
-                <AiNotes copyable title="Client questions" notes={result.questions} />
-              </div>
-            ) : null}
-            <p className="dt-sub mt-4">
-              Paste client notes or brief language. Suggestions stay local until you
-              accept them and save.
-            </p>
-            <textarea
-              className="dt-input mt-3 min-h-44 w-full resize-y text-[11px] leading-4 shadow-inner"
-              onChange={(event) => {
-                onInputText(event.target.value);
-                event.currentTarget.style.height = "auto";
-                event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 420)}px`;
-              }}
-              placeholder="Paste client email, brief notes, or scope language..."
-              rows={7}
-              value={inputText}
-            />
-            <button
-              className={`dt-btn primary mt-3 w-full justify-center ${isAnalyzing ? "dt-loading" : ""}`}
-              disabled={isAnalyzing}
-              onClick={onAnalyze}
-              type="button"
-            >
-              <Sparkles className="h-4 w-4" />
-              {isAnalyzing ? "Analyzing..." : "Analyze pasted text"}
-            </button>
-            {status ? <p className="dt-sub mt-2">{status}</p> : null}
-          </>
+              ) : null}
+            </div>
+
+            <div className="min-w-0" ref={resultRef}>
+              {result ? (
+                <div className="grid gap-4">
+                  <div className="rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--bg-subtle)] p-3">
+                    <p className="text-xs leading-5 text-[var(--ink-3)]">
+                      Snapshot the current matrix before accepting AI changes if you
+                      want a clean before/after comparison.
+                    </p>
+                    <button
+                      className="dt-btn mt-2 w-full justify-center"
+                      onClick={onSnapshot}
+                      type="button"
+                    >
+                      Snapshot current state
+                    </button>
+                  </div>
+                  <SuggestionList
+                    acceptedSuggestionIds={acceptedSuggestionIds}
+                    onAccept={onAccept}
+                    onReject={onReject}
+                    rejectedSuggestionIds={rejectedSuggestionIds}
+                    suggestions={result.additions}
+                  />
+                  <AiNotes title="Possible changes/removals" notes={result.removalsOrChanges} />
+                  <AiNotes title="Assumptions" notes={result.assumptions} />
+                  <AiNotes copyable title="Client questions" notes={result.questions} />
+                </div>
+              ) : (
+                <div className="flex min-h-56 items-center justify-center rounded-[var(--r-md)] border border-dashed border-[var(--line-strong)] bg-[var(--bg-subtle)] p-5 text-center">
+                  <p className="max-w-sm text-sm leading-6 text-[var(--ink-3)]">
+                    Suggested matrix changes, client questions, and source logic
+                    will appear here after analysis.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
         ) : null}
       </div>
     </section>
