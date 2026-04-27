@@ -13,7 +13,7 @@ export function AuthPanel({ message }: { message?: string }) {
       </h2>
       <p className="dt-sub mt-2">
         {mode === "sign-in"
-          ? "Access your workspaces and campaign matrices."
+          ? "Access your workspaces and delivery matrices."
           : "Create your producer account. You may need to confirm your email before signing in."}
       </p>
 

@@ -41,12 +41,24 @@ export default async function LoginPage({
             Deliverable Tracker
           </p>
           <h1 className="text-5xl font-semibold leading-tight tracking-[-0.01em] text-[var(--ink-1)]">
-            Build a clear motion campaign matrix before scope gets blurry.
+            Define, share, and track motion deliverables.
           </h1>
           <p className="mt-6 max-w-lg text-lg leading-8 text-[var(--ink-2)]">
-            Producer-facing workspace, project, tree, and snapshot tools for
-            Creative Units, durations, aspect ratios, and output formats.
+            A workspace for translating briefs, client notes, and post
+            requirements into a clear delivery matrix.
           </p>
+          <ul className="mt-7 grid gap-3 text-sm leading-6 text-[var(--ink-2)]">
+            {[
+              "Decipher briefs into concrete motion and asset deliverables.",
+              "Align teams and clients on versions, formats, counts, and naming.",
+              "Track scope changes across the post-production process.",
+            ].map((item) => (
+              <li className="flex gap-3" key={item}>
+                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent-ink)]" />
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
         </section>
 
         <AuthPanel message={params.message} />
