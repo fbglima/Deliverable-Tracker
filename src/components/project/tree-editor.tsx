@@ -152,6 +152,8 @@ const allNodeTypes: MatrixNodeType[] = [
   "output_format",
 ];
 
+const technicalStandardLabel = "[standard]";
+
 const taxonomyOptions: Array<{
   type: MatrixNodeType;
   example: string;
@@ -379,7 +381,7 @@ export function TreeEditor({
       ? versionsType
       : addableTypes[0];
     setVersionsType(nextType);
-    setSelectedPresetLabels(presetValues[nextType]);
+    setSelectedPresetLabels(defaultPresetLabelsForType(nextType));
     setCustomVersionLabels("");
     setShowVersionsModal(true);
   }
@@ -392,7 +394,13 @@ export function TreeEditor({
         .map((label) => label.trim())
         .filter(Boolean),
     ];
-    const uniqueLabels = Array.from(new Set(labels));
+    const uniqueLabels = Array.from(
+      new Set(
+        versionsType === "technical_variant"
+          ? [technicalStandardLabel, ...labels]
+          : labels,
+      ),
+    );
 
     if (!uniqueLabels.length) {
       return;
@@ -886,7 +894,7 @@ export function TreeEditor({
           onTarget={setVersionsTarget}
           onType={(type) => {
             setVersionsType(type);
-            setSelectedPresetLabels(presetValues[type]);
+            setSelectedPresetLabels(defaultPresetLabelsForType(type));
           }}
           presetLabels={selectedPresetLabels}
           addableTypes={getAddableTypesForNode(
@@ -1224,16 +1232,19 @@ function MatrixRow({
       : isAncestorContext
         ? "inset 2px 0 0 rgba(154, 178, 55, 0.35)"
         : undefined;
+  const rowBorderColor =
+    node.nodeType === "output_format" ? "var(--line-faint)" : "var(--line-strong)";
 
   return (
     <div
-      className="group relative grid w-full grid-cols-[minmax(0,1fr)_110px_90px_72px_72px_28px] items-center border-b border-[var(--line-faint)] bg-transparent py-0 pr-[var(--row-px)] pl-2 text-left text-[var(--ink-1)] transition hover:bg-[var(--bg-subtle)]"
+      className="dt-matrix-row group relative grid w-full grid-cols-[minmax(0,1fr)_110px_90px_72px_72px_28px] items-center border-b bg-transparent py-0 pr-[var(--row-px)] pl-2 text-left text-[var(--ink-1)] transition-[background-color,border-color,box-shadow] duration-150 hover:bg-[var(--bg-subtle)]"
       onClick={onSelect}
       onMouseEnter={() => onHoverPath(row.pathIds)}
       onMouseLeave={() => onHoverPath([])}
       style={{
         minHeight: "var(--row-h)",
         background: rowBackground,
+        borderBottomColor: rowBorderColor,
         boxShadow: rowInset,
         fontSize: "var(--row-fs)",
       }}
@@ -1996,6 +2007,13 @@ function AiAssistantPanel({
   status: string;
 }) {
   const resultRef = useRef<HTMLDivElement>(null);
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const openSuggestionCount =
+    result?.additions.filter(
+      (suggestion) =>
+        !acceptedSuggestionIds.has(suggestion.id) &&
+        !rejectedSuggestionIds.has(suggestion.id),
+    ).length ?? 0;
 
   useEffect(() => {
     if (result) {
@@ -2008,65 +2026,88 @@ function AiAssistantPanel({
       <div className="dt-ai-sheen h-1.5" />
       <div className="p-4">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold">AI Assistant</h2>
-          <Sparkles className="h-4 w-4 text-[var(--ink-3)]" />
-        </div>
-        <p className="dt-sub mt-2">
-          Paste client notes or brief language. Suggestions stay local until you
-          accept them and save.
-        </p>
-      <textarea
-        className="dt-input mt-3 min-h-44 w-full resize-y text-xs leading-5 shadow-inner"
-        onChange={(event) => {
-          onInputText(event.target.value);
-          event.currentTarget.style.height = "auto";
-          event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 420)}px`;
-        }}
-        placeholder="Paste client email, brief notes, or scope language..."
-        rows={7}
-        value={inputText}
-      />
-      <button
-        className={`dt-btn primary mt-3 w-full justify-center ${isAnalyzing ? "dt-loading" : ""}`}
-        disabled={isAnalyzing}
-        onClick={onAnalyze}
-        type="button"
-      >
-        <Sparkles className="h-4 w-4" />
-        {isAnalyzing ? "Analyzing..." : "Analyze pasted text"}
-      </button>
-      {status ? <p className="dt-sub mt-2">{status}</p> : null}
-      {result ? (
-        <div className="mt-4 grid gap-4" ref={resultRef}>
-          <div className="rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--bg-subtle)] p-3">
-            <p className="text-xs leading-5 text-[var(--ink-3)]">
-              Snapshot the current matrix before accepting AI changes if you
-              want a clean before/after comparison.
-            </p>
-            <button className="dt-btn mt-2 w-full justify-center" onClick={onSnapshot} type="button">
-              Snapshot current state
-            </button>
-          </div>
           <div>
-            <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--ink-3)]">
-              Summary
-            </h3>
-            <p className="mt-2 text-sm leading-5 text-[var(--ink-2)]">
-              {result.summary}
-            </p>
+            <h2 className="text-sm font-semibold">AI Assistant</h2>
+            {isCollapsed && openSuggestionCount ? (
+              <p className="dt-sub mt-1">{openSuggestionCount} suggestions ready</p>
+            ) : null}
           </div>
-          <SuggestionList
-            acceptedSuggestionIds={acceptedSuggestionIds}
-            onAccept={onAccept}
-            onReject={onReject}
-            rejectedSuggestionIds={rejectedSuggestionIds}
-            suggestions={result.additions}
-          />
-          <AiNotes title="Possible changes/removals" notes={result.removalsOrChanges} />
-          <AiNotes title="Assumptions" notes={result.assumptions} />
-          <AiNotes copyable title="Client questions" notes={result.questions} />
+          <button
+            className="dt-btn h-7 px-2"
+            onClick={() => setIsCollapsed((current) => !current)}
+            type="button"
+          >
+            <ChevronRight
+              className="h-3.5 w-3.5 transition-transform"
+              style={{ transform: isCollapsed ? "rotate(0deg)" : "rotate(90deg)" }}
+            />
+            {isCollapsed ? "Show" : "Hide"}
+          </button>
         </div>
-      ) : null}
+        {!isCollapsed ? (
+          <>
+            {result ? (
+              <div className="mt-4 grid gap-4" ref={resultRef}>
+                <div className="rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--bg-subtle)] p-3">
+                  <p className="text-xs leading-5 text-[var(--ink-3)]">
+                    Snapshot the current matrix before accepting AI changes if you
+                    want a clean before/after comparison.
+                  </p>
+                  <button
+                    className="dt-btn mt-2 w-full justify-center"
+                    onClick={onSnapshot}
+                    type="button"
+                  >
+                    Snapshot current state
+                  </button>
+                </div>
+                <div>
+                  <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--ink-3)]">
+                    Summary
+                  </h3>
+                  <p className="mt-2 text-sm leading-5 text-[var(--ink-2)]">
+                    {result.summary}
+                  </p>
+                </div>
+                <SuggestionList
+                  acceptedSuggestionIds={acceptedSuggestionIds}
+                  onAccept={onAccept}
+                  onReject={onReject}
+                  rejectedSuggestionIds={rejectedSuggestionIds}
+                  suggestions={result.additions}
+                />
+                <AiNotes title="Possible changes/removals" notes={result.removalsOrChanges} />
+                <AiNotes title="Assumptions" notes={result.assumptions} />
+                <AiNotes copyable title="Client questions" notes={result.questions} />
+              </div>
+            ) : null}
+            <p className="dt-sub mt-4">
+              Paste client notes or brief language. Suggestions stay local until you
+              accept them and save.
+            </p>
+            <textarea
+              className="dt-input mt-3 min-h-44 w-full resize-y text-xs leading-5 shadow-inner"
+              onChange={(event) => {
+                onInputText(event.target.value);
+                event.currentTarget.style.height = "auto";
+                event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 420)}px`;
+              }}
+              placeholder="Paste client email, brief notes, or scope language..."
+              rows={7}
+              value={inputText}
+            />
+            <button
+              className={`dt-btn primary mt-3 w-full justify-center ${isAnalyzing ? "dt-loading" : ""}`}
+              disabled={isAnalyzing}
+              onClick={onAnalyze}
+              type="button"
+            >
+              <Sparkles className="h-4 w-4" />
+              {isAnalyzing ? "Analyzing..." : "Analyze pasted text"}
+            </button>
+            {status ? <p className="dt-sub mt-2">{status}</p> : null}
+          </>
+        ) : null}
       </div>
     </section>
   );
@@ -3293,6 +3334,10 @@ function AddVersionsModal({
   const presets = presetValues[type];
 
   function togglePreset(label: string) {
+    if (type === "technical_variant" && label === technicalStandardLabel) {
+      return;
+    }
+
     if (presetLabels.includes(label)) {
       onPresetLabels(presetLabels.filter((item) => item !== label));
     } else {
@@ -3320,20 +3365,36 @@ function AddVersionsModal({
 
         <div>
           <div className="dt-eyebrow mb-2">Presets</div>
+          {type === "technical_variant" ? (
+            <p className="dt-sub mb-2">
+              Technical variants sit beside a normal version. The standard path is
+              always preserved, then any additional variants are added alongside it.
+            </p>
+          ) : null}
           <div className="flex flex-wrap gap-2">
-            {presets.map((label) => (
-              <label
-                className="inline-flex cursor-pointer items-center gap-2 rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--bg-app)] px-2 py-1 text-sm"
-                key={label}
-              >
-                <input
-                  checked={presetLabels.includes(label)}
-                  onChange={() => togglePreset(label)}
-                  type="checkbox"
-                />
-                <span className="mono">{label}</span>
-              </label>
-            ))}
+            {presets.map((label) => {
+              const isFixedStandard =
+                type === "technical_variant" && label === technicalStandardLabel;
+
+              return (
+                <label
+                  className={`inline-flex items-center gap-2 rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--bg-app)] px-2 py-1 text-sm ${
+                    isFixedStandard
+                      ? "cursor-not-allowed opacity-65"
+                      : "cursor-pointer"
+                  }`}
+                  key={label}
+                >
+                  <input
+                    checked={isFixedStandard || presetLabels.includes(label)}
+                    disabled={isFixedStandard}
+                    onChange={() => togglePreset(label)}
+                    type="checkbox"
+                  />
+                  <span className="mono">{label}</span>
+                </label>
+              );
+            })}
           </div>
         </div>
 
@@ -4128,42 +4189,168 @@ function addVersionNodes(
     const inScope =
       options.target === "all" ||
       (options.selectedNodeId ? nextInsideSelectedBranch : false);
+    const existingChildren = node.children ?? [];
+    const walkedChildren = existingChildren.map((child) =>
+      walk(child, nextInsideSelectedBranch),
+    );
     const shouldAddHere =
       inScope &&
-      canAddVersionToParent(
-        node.nodeType,
+      shouldAddVersionToParent(
+        node,
         options.type,
         options.enabledForkTypes,
       );
-    const existingChildren = node.children ?? [];
-    const addedChildren = shouldAddHere
-      ? options.labels
-          .filter(
-            (label) =>
-              !existingChildren.some(
-                (child) => child.nodeType === options.type && child.label === label,
-              ),
-          )
-          .map((label) =>
-            createVersionNode(
-              options.type,
-              label,
-              options.defaultOutputFormats,
-              options.autoApplyOutputFormats,
-            ),
-          )
-      : [];
+
+    const nextChildren =
+      shouldAddHere && options.type === "technical_variant"
+        ? addTechnicalVariantBranches(walkedChildren, options)
+        : shouldAddHere
+          ? [
+              ...walkedChildren,
+              ...options.labels
+                .filter(
+                  (label) =>
+                    !walkedChildren.some(
+                      (child) =>
+                        child.nodeType === options.type && child.label === label,
+                    ),
+                )
+                .map((label) =>
+                  createVersionNode(
+                    options.type,
+                    label,
+                    options.defaultOutputFormats,
+                    options.autoApplyOutputFormats,
+                  ),
+                ),
+            ]
+          : walkedChildren;
 
     return {
       ...node,
-      children: [
-        ...existingChildren.map((child) => walk(child, nextInsideSelectedBranch)),
-        ...addedChildren,
-      ],
+      children: nextChildren,
     };
   }
 
   return nodes.map((node) => walk(node, false));
+}
+
+function addTechnicalVariantBranches(
+  children: DeliverableNode[],
+  options: {
+    autoApplyOutputFormats: boolean;
+    defaultOutputFormats: string[];
+    labels: string[];
+  },
+) {
+  const directOutputChildren = children.filter(
+    (child) => child.nodeType === "output_format",
+  );
+  const existingVariantChildren = children.filter(
+    (child) => child.nodeType === "technical_variant",
+  );
+  const otherChildren = children.filter(
+    (child) =>
+      child.nodeType !== "output_format" && child.nodeType !== "technical_variant",
+  );
+  const labels = Array.from(new Set([technicalStandardLabel, ...options.labels]));
+  const existingVariantLabels = new Set(
+    existingVariantChildren.map((child) => child.label.toLowerCase()),
+  );
+  const hasStandard = existingVariantLabels.has(technicalStandardLabel.toLowerCase());
+  const mergedVariantChildren = existingVariantChildren.map((child) => {
+    if (
+      child.label.toLowerCase() !== technicalStandardLabel.toLowerCase() ||
+      !directOutputChildren.length
+    ) {
+      return child;
+    }
+
+    const existingOutputKeys = new Set(
+      (child.children ?? [])
+        .filter((output) => output.nodeType === "output_format")
+        .map((output) => output.label.toLowerCase()),
+    );
+
+    return {
+      ...child,
+      children: [
+        ...(child.children ?? []),
+        ...directOutputChildren.filter(
+          (output) => !existingOutputKeys.has(output.label.toLowerCase()),
+        ),
+      ],
+    };
+  });
+  const standardBranch =
+    hasStandard
+      ? []
+      : [
+          createNode(
+            "technical_variant",
+            technicalStandardLabel,
+            directOutputChildren.length
+              ? directOutputChildren
+              : defaultOutputChildren(options),
+          ),
+        ];
+  const additionalBranches = labels
+    .filter((label) => label !== technicalStandardLabel)
+    .filter((label) => !existingVariantLabels.has(label.toLowerCase()))
+    .map((label) =>
+      createVersionNode(
+        "technical_variant",
+        label,
+        options.defaultOutputFormats,
+        options.autoApplyOutputFormats,
+      ),
+    );
+
+  return [
+    ...otherChildren,
+    ...standardBranch,
+    ...mergedVariantChildren,
+    ...additionalBranches,
+  ];
+}
+
+function shouldAddVersionToParent(
+  node: DeliverableNode,
+  childType: MatrixNodeType,
+  enabledForkTypes: MatrixNodeType[],
+) {
+  if (childType !== "technical_variant") {
+    return canAddVersionToParent(node.nodeType, childType, enabledForkTypes);
+  }
+
+  if (node.nodeType === "technical_variant" || node.nodeType === "output_format") {
+    return false;
+  }
+
+  const children = node.children ?? [];
+  const hasDirectOutput = children.some((child) => child.nodeType === "output_format");
+  const hasDeeperFork = children.some((child) =>
+    ["platform", "localization", "technical_variant"].includes(child.nodeType),
+  );
+
+  if (hasDirectOutput) {
+    return true;
+  }
+
+  if (hasDeeperFork) {
+    return false;
+  }
+
+  return canAddVersionToParent(node.nodeType, childType, enabledForkTypes);
+}
+
+function defaultOutputChildren(options: {
+  autoApplyOutputFormats: boolean;
+  defaultOutputFormats: string[];
+}) {
+  return options.autoApplyOutputFormats
+    ? options.defaultOutputFormats.map((format) => createNode("output_format", format))
+      : [];
 }
 
 function addSuggestionPath(
@@ -4283,6 +4470,12 @@ function parseDraftLabels(value: string) {
         .filter(Boolean),
     ),
   );
+}
+
+function defaultPresetLabelsForType(type: MatrixNodeType) {
+  return type === "technical_variant"
+    ? Array.from(new Set([technicalStandardLabel, ...presetValues[type]]))
+    : presetValues[type];
 }
 
 function suggestionHierarchyRank(suggestion: AiSuggestion) {

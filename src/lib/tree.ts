@@ -51,7 +51,7 @@ export const presetValues: Record<MatrixNodeType, string[]> = {
   aspect_ratio: ["16x9", "9x16", "1x1", "4x5"],
   platform: ["Instagram", "TikTok", "YouTube", "Meta"],
   localization: ["Global", "US", "LATAM", "Brazil", "France"],
-  technical_variant: ["With Slate", "Without Slate", "Broadcast", "Web"],
+  technical_variant: ["[standard]", "Generic", "Captioned", "Broadcast", "Web", "Slated"],
   output_format: ["h.264 .mp4", "ProRes .mov"],
 };
 
@@ -87,8 +87,8 @@ export function createDefaultTree(): DeliverableTree {
       createNode("creative_unit", "Creative Unit 01", [
         createNode("duration", ":30", [
           createNode("aspect_ratio", "16x9", [
-            createNode("output_format", "H264 MP4"),
-            createNode("output_format", "ProRes MOV"),
+            createNode("output_format", "h.264 .mp4"),
+            createNode("output_format", "ProRes .mov"),
           ]),
         ]),
       ]),

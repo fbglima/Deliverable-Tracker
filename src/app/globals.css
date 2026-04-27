@@ -427,3 +427,19 @@ select {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-tint);
 }
+
+.dt-matrix-row {
+  animation: dt-row-reveal 140ms ease-out;
+}
+
+@keyframes dt-row-reveal {
+  from {
+    opacity: 0.45;
+    transform: translateY(-2px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
