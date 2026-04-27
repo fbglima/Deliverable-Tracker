@@ -2086,7 +2086,7 @@ function AiAssistantPanel({
               accept them and save.
             </p>
             <textarea
-              className="dt-input mt-3 min-h-44 w-full resize-y text-xs leading-5 shadow-inner"
+              className="dt-input mt-3 min-h-44 w-full resize-y text-[11px] leading-4 shadow-inner"
               onChange={(event) => {
                 onInputText(event.target.value);
                 event.currentTarget.style.height = "auto";
@@ -4054,8 +4054,12 @@ function suggestFilename({
   projectName: string;
   separator: FilenameSeparator;
 }) {
+  const filenamePathLabels = pathLabels.filter(
+    (label) => label !== technicalStandardLabel,
+  );
+
   return formatFilenameParts(
-    [clientName, projectName, ...pathLabels].filter(Boolean) as string[],
+    [clientName, projectName, ...filenamePathLabels].filter(Boolean) as string[],
     { caseStyle, separator },
   );
 }
@@ -4473,9 +4477,7 @@ function parseDraftLabels(value: string) {
 }
 
 function defaultPresetLabelsForType(type: MatrixNodeType) {
-  return type === "technical_variant"
-    ? Array.from(new Set([technicalStandardLabel, ...presetValues[type]]))
-    : presetValues[type];
+  return type === "technical_variant" ? [technicalStandardLabel] : presetValues[type];
 }
 
 function suggestionHierarchyRank(suggestion: AiSuggestion) {

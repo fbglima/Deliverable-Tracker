@@ -252,8 +252,10 @@ function suggestFilename({
   projectName: string;
   separator: FilenameSeparator;
 }) {
+  const filenamePathLabels = pathLabels.filter((label) => label !== "[standard]");
+
   return formatFilenameParts(
-    [clientName, projectName, ...pathLabels].filter(Boolean) as string[],
+    [clientName, projectName, ...filenamePathLabels].filter(Boolean) as string[],
     { caseStyle, separator },
   );
 }

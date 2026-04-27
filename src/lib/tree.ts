@@ -21,7 +21,6 @@ export const optionalLevels: MatrixNodeType[] = [
 export const defaultEnabledForkTypes: MatrixNodeType[] = [
   "duration",
   "aspect_ratio",
-  "platform",
   "technical_variant",
 ];
 
